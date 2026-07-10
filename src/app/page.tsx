@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { FilterPanel } from "@/components/FilterPanel";
 import { IngredientInput } from "@/components/IngredientInput";
 import { useRecommendation } from "@/hooks/useRecommendation";
 import { useMealStore } from "@/stores/useMealStore";
+import { useAuth } from "@/hooks/useAuth";
 
 type HomeView = "main" | "ai" | "ingredient";
 
@@ -15,6 +17,7 @@ export default function HomePage() {
   const router = useRouter();
   const [view, setView] = useState<HomeView>("main");
   const [isRandomLoading, setIsRandomLoading] = useState(false);
+  const { user } = useAuth();
   const { randomRecommend, aiRecommend, ingredientRecommend } =
     useRecommendation();
   const { isLoading } = useMealStore();
@@ -42,6 +45,18 @@ export default function HomePage() {
 
   return (
     <main className="flex-1 flex flex-col items-center px-4 py-12 max-w-md mx-auto w-full">
+      {/* 顶部用户状态 */}
+      <div className="w-full flex justify-end mb-2">
+        {user ? (
+          <Link href="/my" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
+            👤 {user.email.split("@")[0]}
+          </Link>
+        ) : (
+          <Link href="/login" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
+            登录/注册
+          </Link>
+        )}
+      </div>
       {/* Logo / Title */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -202,14 +217,21 @@ export default function HomePage() {
       </AnimatePresence>
 
       {/* Footer */}
-      <motion.p
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ delay: 0.5 }}
-        className="text-xs text-gray-400 mt-auto pt-12"
-      >
-        Powered by DeepSeek AI
-      </motion.p>
+      <div className="mt-auto pt-12 flex flex-col items-center gap-3">
+        <Link href="/my">
+          <Button variant="ghost" className="text-gray-500 hover:text-[#FF6B35] text-sm">
+            ❤️ 我的收藏 · 📋 浏览历史 · 🛒 买菜清单
+          </Button>
+        </Link>
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5 }}
+          className="text-xs text-gray-400"
+        >
+          Powered by DeepSeek AI
+        </motion.p>
+      </div>
     </main>
   );
 }

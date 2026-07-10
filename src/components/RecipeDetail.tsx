@@ -1,8 +1,10 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/hooks/useAuth";
 import type { RecipeDetail as RecipeDetailType } from "@/lib/types";
 
 interface RecipeDetailProps {
@@ -10,6 +12,45 @@ interface RecipeDetailProps {
 }
 
 export function RecipeDetail({ recipe }: RecipeDetailProps) {
+  const { authFetch } = useAuth();
+  const [isFavorited, setIsFavorited] = useState(false);
+
+  useEffect(() => {
+    // 检查是否已收藏
+    authFetch("/api/favorites")
+      .then((r) => r.json())
+      .then((data) => {
+        const found = data.favorites?.some(
+          (f: { recipe_name: string }) => f.recipe_name === recipe.name
+        );
+        setIsFavorited(!!found);
+      })
+      .catch(() => {});
+  }, [recipe.name, authFetch]);
+
+  const toggleFavorite = async () => {
+    if (isFavorited) {
+      await authFetch(`/api/favorites?name=${encodeURIComponent(recipe.name)}`, { method: "DELETE" });
+      setIsFavorited(false);
+    } else {
+      await authFetch("/api/favorites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipe_name: recipe.name, recipe_data: recipe }),
+      });
+      setIsFavorited(true);
+    }
+  };
+
+  // 记录浏览历史
+  useEffect(() => {
+    authFetch("/api/history", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipe_name: recipe.name, recipe_data: recipe, source: "detail" }),
+    }).catch(() => {});
+  }, [recipe, authFetch]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -33,9 +74,18 @@ export function RecipeDetail({ recipe }: RecipeDetailProps) {
         </motion.div>
       )}
 
-      {/* 标题 */}
+      {/* 标题 + 收藏 */}
       <div className="space-y-3">
-        <h1 className="text-2xl font-bold text-gray-900">{recipe.name}</h1>
+        <div className="flex items-start justify-between">
+          <h1 className="text-2xl font-bold text-gray-900">{recipe.name}</h1>
+          <motion.button
+            whileTap={{ scale: 0.8 }}
+            onClick={toggleFavorite}
+            className="flex-shrink-0 ml-3 text-2xl transition-transform"
+          >
+            {isFavorited ? "❤️" : "🤍"}
+          </motion.button>
+        </div>
         {recipe.description && (
           <p className="text-sm text-gray-600 leading-relaxed">
             {recipe.description}

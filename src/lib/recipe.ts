@@ -1,19 +1,23 @@
 import type { RecipeSource, RecipeDetail, RecipeIngredient } from "./types";
+import { getEnv } from "./cloudflare";
 
 const HF_API =
   "https://datasets-server.huggingface.co/rows?dataset=xzm1999/XiaChuFang_Recipe_Corpus&config=default&split=train";
 
 const TOTAL_RECIPES = 1550151;
-const BATCH_SIZE = 100; // HF API 每次最多 100 条
-const BATCH_COUNT = 10; // 并行获取 10 批
-const CACHE_TTL = 5 * 60 * 1000; // 5 分钟
+const BATCH_SIZE = 100;
+const BATCH_COUNT = 10;
+const KV_CACHE_KEY = "recipe_cache_v1";
+const KV_CACHE_TTL = 600; // 10 分钟（秒）
+const MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 分钟（毫秒）
 
 interface CacheEntry {
   data: RecipeSource[];
   expiresAt: number;
 }
 
-let cache: CacheEntry | null = null;
+// 内存缓存（fallback / 本地开发）
+let memoryCache: CacheEntry | null = null;
 let loadingPromise: Promise<RecipeSource[]> | null = null;
 
 /** HF 原始数据字段 */
@@ -76,33 +80,80 @@ async function fetchBatchFromHF(offset: number): Promise<RecipeSource[]> {
   return recipes;
 }
 
-/** 加载菜谱数据（异步，带缓存） */
+/** 从 KV 读取缓存 */
+async function getFromKV(): Promise<RecipeSource[] | null> {
+  try {
+    const env = await getEnv();
+    if (!env?.RECIPE_CACHE) return null;
+    const raw = await env.RECIPE_CACHE.get(KV_CACHE_KEY, "text");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CacheEntry;
+    if (Date.now() < parsed.expiresAt) {
+      console.log(`KV 缓存命中: ${parsed.data.length} 条`);
+      return parsed.data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** 写入 KV 缓存 */
+async function setToKV(data: RecipeSource[]): Promise<void> {
+  try {
+    const env = await getEnv();
+    if (!env?.RECIPE_CACHE) return;
+    const entry: CacheEntry = { data, expiresAt: Date.now() + KV_CACHE_TTL * 1000 };
+    await env.RECIPE_CACHE.put(KV_CACHE_KEY, JSON.stringify(entry), {
+      expirationTtl: KV_CACHE_TTL,
+    });
+  } catch (err) {
+    console.warn("KV 写入失败:", err);
+  }
+}
+
+/** 从 HuggingFace 拉取新鲜数据 */
+async function fetchFromHF(): Promise<RecipeSource[]> {
+  const offsets = Array.from({ length: BATCH_COUNT }, () =>
+    Math.floor(Math.random() * (TOTAL_RECIPES - BATCH_SIZE))
+  );
+  const batches = await Promise.all(
+    offsets.map((offset) => fetchBatchFromHF(offset))
+  );
+  return batches.flat();
+}
+
+/** 加载菜谱数据（KV 优先 → HuggingFace → 内存缓存降级） */
 async function loadRecipes(): Promise<RecipeSource[]> {
-  // 缓存有效直接返回
-  if (cache && Date.now() < cache.expiresAt) {
-    return cache.data;
+  // 1. 内存缓存检查
+  if (memoryCache && Date.now() < memoryCache.expiresAt) {
+    return memoryCache.data;
   }
 
-  // 避免并发重复请求
+  // 2. 避免并发重复请求
   if (loadingPromise) return loadingPromise;
 
   loadingPromise = (async () => {
     try {
-      // 生成多个随机偏移，并行获取
-      const offsets = Array.from({ length: BATCH_COUNT }, () =>
-        Math.floor(Math.random() * (TOTAL_RECIPES - BATCH_SIZE))
-      );
-      const batches = await Promise.all(
-        offsets.map((offset) => fetchBatchFromHF(offset))
-      );
-      const data = batches.flat();
-      cache = { data, expiresAt: Date.now() + CACHE_TTL };
+      // 3. 尝试 KV 缓存
+      const kvData = await getFromKV();
+      if (kvData && kvData.length > 0) {
+        memoryCache = { data: kvData, expiresAt: Date.now() + MEMORY_CACHE_TTL };
+        return kvData;
+      }
+
+      // 4. KV 未命中，从 HuggingFace 拉取
+      const data = await fetchFromHF();
+      memoryCache = { data, expiresAt: Date.now() + MEMORY_CACHE_TTL };
       console.log(`菜谱数据已从 HuggingFace 加载: ${data.length} 条`);
+
+      // 5. 写入 KV 缓存
+      await setToKV(data);
+
       return data;
     } catch (err) {
       console.error("HuggingFace 加载失败:", err);
-      // 如果有旧缓存，降级使用
-      if (cache) return cache.data;
+      if (memoryCache) return memoryCache.data;
       return [];
     } finally {
       loadingPromise = null;

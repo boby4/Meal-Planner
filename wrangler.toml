@@ -7,3 +7,14 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
+
+# KV 缓存（菜谱数据）
+[[kv_namespaces]]
+binding = "RECIPE_CACHE"
+id = "ac198a21393745378c25c28055e6a8d8"
+
+# D1 数据库（收藏/历史/菜单/清单）
+[[d1_databases]]
+binding = "DB"
+database_name = "meal-planner-db"
+database_id = "6756250a-25be-4c07-8748-e9de2d4ae6f4"
