@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -11,7 +11,14 @@ import { useRecommendation } from "@/hooks/useRecommendation";
 import { useMealStore } from "@/stores/useMealStore";
 import { useAuth } from "@/hooks/useAuth";
 
-type HomeView = "main" | "ai" | "ingredient";
+type HomeView = "main" | "ai" | "ingredient" | "search";
+
+interface SearchResult {
+  name: string;
+  description: string;
+  ingredientCount: number;
+  stepCount: number;
+}
 
 export default function HomePage() {
   const router = useRouter();
@@ -21,6 +28,45 @@ export default function HomePage() {
   const { randomRecommend, aiRecommend, ingredientRecommend } =
     useRecommendation();
   const { isLoading } = useMealStore();
+
+  // 搜索状态
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchTotal, setSearchTotal] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const doSearch = useCallback(async (q: string) => {
+    if (!q.trim()) {
+      setSearchResults([]);
+      setSearchTotal(0);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q.trim())}`);
+      const json = await res.json();
+      setSearchResults(json.results || []);
+      setSearchTotal(json.total || 0);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (view === "search" && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [view]);
+
+  const handleSearchInput = (value: string) => {
+    setSearchQuery(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => doSearch(value), 400);
+  };
 
   const handleRandom = async () => {
     setIsRandomLoading(true);
@@ -174,6 +220,30 @@ export default function HomePage() {
                 </div>
               </Button>
             </motion.div>
+            {/* ④ 搜索菜谱 */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+            >
+              <Button
+                onClick={() => setView("search")}
+                variant="outline"
+                className="w-full h-auto py-5 rounded-3xl border-gray-200 bg-white hover:bg-gray-50 shadow-lg shadow-gray-100/50 text-left"
+              >
+                <div className="flex items-center gap-4 w-full">
+                  <span className="text-3xl">🔍</span>
+                  <div className="text-left">
+                    <div className="font-bold text-base text-gray-900">
+                      搜索菜谱
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      输入菜名，快速找到想吃的菜
+                    </div>
+                  </div>
+                </div>
+              </Button>
+            </motion.div>
           </motion.div>
         )}
 
@@ -212,6 +282,106 @@ export default function HomePage() {
               ← 返回
             </Button>
             <IngredientInput onSubmit={handleIngredientSubmit} />
+          </motion.div>
+        )}
+        {view === "search" && (
+          <motion.div
+            key="search"
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
+            className="w-full space-y-4"
+          >
+            <Button
+              onClick={() => { setView("main"); setSearchQuery(""); setSearchResults([]); }}
+              variant="ghost"
+              className="rounded-full text-gray-500 hover:text-gray-700"
+            >
+              ← 返回
+            </Button>
+
+            {/* 搜索输入框 */}
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => handleSearchInput(e.target.value)}
+                placeholder="输入菜名，如：红烧肉、番茄炒蛋..."
+                className="w-full pl-12 pr-10 py-4 rounded-2xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 focus:border-[#FF6B35] transition-all shadow-sm text-base"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(""); setSearchResults([]); searchInputRef.current?.focus(); }}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* 搜索结果 */}
+            {isSearching && (
+              <div className="text-center py-8 text-gray-400 text-sm">
+                <motion.span
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="inline-block text-2xl mb-2"
+                >🔍</motion.span>
+                <div>搜索中...</div>
+              </div>
+            )}
+
+            {!isSearching && searchQuery && searchResults.length === 0 && (
+              <div className="text-center py-12 text-gray-400">
+                <div className="text-4xl mb-3">🍽️</div>
+                <div className="text-sm">没有找到「{searchQuery}」相关菜谱</div>
+                <div className="text-xs mt-1">换个关键词试试</div>
+              </div>
+            )}
+
+            {!isSearching && searchResults.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-xs text-gray-400 px-1">
+                  找到 {searchTotal} 道菜谱{searchTotal > 20 && "，显示前 20 道"}
+                </div>
+                {searchResults.map((item, idx) => (
+                  <motion.div
+                    key={item.name}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.03 }}
+                  >
+                    <Link
+                      href={`/recipe/${encodeURIComponent(item.name)}`}
+                      className="block p-4 rounded-2xl bg-white border border-gray-100 hover:border-[#FF6B35]/30 hover:shadow-md transition-all active:scale-[0.98]"
+                    >
+                      <div className="font-medium text-gray-900 text-base">{item.name}</div>
+                      {item.description && (
+                        <div className="text-xs text-gray-400 mt-1 line-clamp-2">{item.description}</div>
+                      )}
+                      <div className="flex gap-3 mt-2">
+                        <span className="text-xs text-[#FF6B35] bg-orange-50 px-2 py-0.5 rounded-full">
+                          {item.ingredientCount} 种食材
+                        </span>
+                        <span className="text-xs text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">
+                          {item.stepCount} 个步骤
+                        </span>
+                      </div>
+                    </Link>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+
+            {!isSearching && !searchQuery && (
+              <div className="text-center py-12 text-gray-400">
+                <div className="text-4xl mb-3">🔍</div>
+                <div className="text-sm">输入菜名开始搜索</div>
+                <div className="text-xs mt-1">试试「红烧肉」「番茄炒蛋」「可乐鸡翅」</div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
