@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callDeepSeek } from "@/lib/deepseek";
 
-export const runtime = "edge";
-
 /** POST /api/chat - DeepSeek 代理 */
 export async function POST(request: NextRequest) {
   try {
