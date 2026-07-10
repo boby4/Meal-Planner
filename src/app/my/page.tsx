@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 
 type Tab = "favorites" | "history" | "shopping";
@@ -31,6 +30,13 @@ interface ShoppingItem {
   checked: boolean;
   related_recipe: string;
 }
+
+const SOURCE_LABEL: Record<string, string> = {
+  detail: "浏览",
+  random: "随机推荐",
+  ai: "AI 推荐",
+  ingredient: "食材推荐",
+};
 
 export default function MyPage() {
   const { user, logout, authFetch } = useAuth();
@@ -116,55 +122,91 @@ export default function MyPage() {
     setShopping((prev) => prev.filter((item) => !item.checked));
   };
 
-  const tabs: { key: Tab; label: string; icon: string }[] = [
-    { key: "favorites", label: "收藏", icon: "❤️" },
-    { key: "history", label: "历史", icon: "📋" },
-    { key: "shopping", label: "买菜清单", icon: "🛒" },
+  const tabs: { key: Tab; label: string; icon: string; count: number }[] = [
+    { key: "favorites", label: "收藏", icon: "❤️", count: favorites.length },
+    { key: "history", label: "历史", icon: "🕐", count: history.length },
+    { key: "shopping", label: "清单", icon: "🛒", count: shopping.filter((i) => !i.checked).length },
   ];
+
+  const shoppingDone = shopping.filter((i) => i.checked).length;
+  const shoppingTotal = shopping.length;
+
+  const stagger = {
+    animate: { transition: { staggerChildren: 0.04 } },
+  };
+
+  const fadeUp = {
+    initial: { opacity: 0, y: 8 },
+    animate: { opacity: 1, y: 0 },
+  };
 
   return (
     <main className="flex-1 flex flex-col max-w-md mx-auto w-full px-4 py-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <Link href="/">
-          <Button variant="ghost" size="sm" className="rounded-full text-gray-500">
-            ← 返回
-          </Button>
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex items-center gap-3 mb-6"
+      >
+        <Link
+          href="/"
+          className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
+        >
+          <span className="text-sm">←</span>
         </Link>
-        <h1 className="text-xl font-bold text-gray-900">我的</h1>
-        <div className="flex-1" />
+        <div className="flex-1">
+          <h1 className="text-lg font-bold text-gray-900">我的</h1>
+          {user && (
+            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+          )}
+        </div>
         {user ? (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 max-w-[100px] truncate">{user.email}</span>
+            <div className="w-8 h-8 rounded-full bg-[#FF6B35] text-white flex items-center justify-center text-xs font-bold">
+              {user.email[0].toUpperCase()}
+            </div>
             <button
               onClick={() => { logout(); router.push("/"); }}
-              className="text-xs text-gray-400 hover:text-red-500"
+              className="text-xs text-gray-400 hover:text-red-500 transition-colors"
             >
               退出
             </button>
           </div>
         ) : (
-          <Link href="/login">
-            <Button size="sm" className="bg-[#FF6B35] hover:bg-[#E55A2B] rounded-full text-xs">
-              登录/注册
-            </Button>
+          <Link
+            href="/login"
+            className="text-sm font-medium text-[#FF6B35] hover:text-[#E55A2B] transition-colors"
+          >
+            登录 / 注册
           </Link>
         )}
-      </div>
+      </motion.div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex gap-1.5 mb-5 p-1 bg-gray-100 rounded-2xl">
         {tabs.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            className={`relative flex-1 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
               tab === t.key
-                ? "bg-[#FF6B35] text-white shadow-md shadow-orange-200/50"
-                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                ? "bg-white text-gray-900 shadow-sm"
+                : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            {t.icon} {t.label}
+            <span className="mr-1">{t.icon}</span>
+            {t.label}
+            {t.count > 0 && (
+              <span
+                className={`ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold ${
+                  tab === t.key
+                    ? "bg-[#FF6B35] text-white"
+                    : "bg-gray-200 text-gray-500"
+                }`}
+              >
+                {t.count}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -173,152 +215,216 @@ export default function MyPage() {
       <AnimatePresence mode="wait">
         <motion.div
           key={tab}
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2 }}
           className="flex-1"
         >
-          {/* 收藏 */}
+          {/* ====== 收藏 ====== */}
           {tab === "favorites" && (
-            <div className="space-y-3">
+            <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-2.5">
               {favorites.length === 0 ? (
-                <p className="text-center text-gray-400 py-12">暂无收藏菜谱</p>
+                <EmptyState emoji="❤️" text="还没有收藏菜谱" sub="浏览菜谱时点击 🤍 即可收藏" />
               ) : (
                 favorites.map((item) => (
-                  <div
+                  <motion.div
                     key={item.id}
-                    className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100 shadow-sm"
+                    variants={fadeUp}
+                    className="group flex items-center gap-3 p-3.5 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-orange-100 transition-all"
                   >
+                    <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center text-lg flex-shrink-0">
+                      ❤️
+                    </div>
                     <Link
                       href={`/recipe/${encodeURIComponent(item.recipe_name)}`}
-                      className="flex-1 font-medium text-gray-800 hover:text-[#FF6B35] transition-colors"
+                      className="flex-1 min-w-0"
                     >
-                      {item.recipe_name}
+                      <p className="font-semibold text-gray-800 hover:text-[#FF6B35] transition-colors truncate">
+                        {item.recipe_name}
+                      </p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{item.created_at}</p>
                     </Link>
                     <button
                       onClick={() => removeFavorite(item.recipe_name)}
-                      className="text-gray-400 hover:text-red-500 ml-2 text-lg"
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
                     >
-                      ×
+                      <span className="text-lg leading-none">×</span>
                     </button>
-                  </div>
+                  </motion.div>
                 ))
               )}
-            </div>
+            </motion.div>
           )}
 
-          {/* 历史 */}
+          {/* ====== 历史 ====== */}
           {tab === "history" && (
-            <div className="space-y-3">
+            <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-2.5">
               {history.length > 0 && (
-                <div className="flex justify-end mb-2">
+                <div className="flex justify-end mb-1">
                   <button
                     onClick={clearHistory}
-                    className="text-xs text-gray-400 hover:text-red-500"
+                    className="text-xs text-gray-400 hover:text-red-500 transition-colors flex items-center gap-1"
                   >
-                    清空历史
+                    🗑️ 清空历史
                   </button>
                 </div>
               )}
               {history.length === 0 ? (
-                <p className="text-center text-gray-400 py-12">暂无浏览记录</p>
+                <EmptyState emoji="🕐" text="暂无浏览记录" sub="看过的菜谱会出现在这里" />
               ) : (
                 history.map((item) => (
-                  <div
+                  <motion.div
                     key={item.id}
-                    className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100 shadow-sm"
+                    variants={fadeUp}
+                    className="group flex items-center gap-3 p-3.5 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-100 transition-all"
                   >
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-lg flex-shrink-0">
+                      📖
+                    </div>
                     <Link
                       href={`/recipe/${encodeURIComponent(item.recipe_name)}`}
-                      className="flex-1"
+                      className="flex-1 min-w-0"
                     >
-                      <div className="font-medium text-gray-800 hover:text-[#FF6B35] transition-colors">
+                      <p className="font-semibold text-gray-800 hover:text-[#FF6B35] transition-colors truncate">
                         {item.recipe_name}
-                      </div>
-                      <div className="text-xs text-gray-400 mt-0.5">
-                        {item.source && <span className="mr-2">{item.source}</span>}
-                        {item.viewed_at}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {item.source && (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500">
+                            {SOURCE_LABEL[item.source] || item.source}
+                          </span>
+                        )}
+                        <span className="text-[11px] text-gray-400">{item.viewed_at}</span>
                       </div>
                     </Link>
-                  </div>
+                  </motion.div>
                 ))
               )}
-            </div>
+            </motion.div>
           )}
 
-          {/* 买菜清单 */}
+          {/* ====== 买菜清单 ====== */}
           {tab === "shopping" && (
-            <div className="space-y-3">
+            <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-2.5">
               {/* 添加项 */}
-              <div className="flex gap-2 mb-4">
+              <motion.div variants={fadeUp} className="flex gap-2 mb-3">
                 <input
                   value={newItem}
                   onChange={(e) => setNewItem(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && addShoppingItem()}
-                  placeholder="添加买菜清单项..."
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 focus:border-[#FF6B35]"
+                  placeholder="要买什么菜..."
+                  className="flex-1 px-4 py-3 rounded-2xl border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/20 focus:border-[#FF6B35] transition-all"
                 />
-                <Button
+                <button
                   onClick={addShoppingItem}
-                  size="sm"
-                  className="bg-[#FF6B35] hover:bg-[#E55A2B] rounded-xl px-4"
+                  disabled={!newItem.trim()}
+                  className="w-12 h-12 rounded-2xl bg-[#FF6B35] hover:bg-[#E55A2B] disabled:bg-gray-200 text-white text-xl font-bold flex items-center justify-center transition-all shadow-md shadow-orange-200/50 disabled:shadow-none"
                 >
-                  添加
-                </Button>
-              </div>
+                  +
+                </button>
+              </motion.div>
 
-              {shopping.some((i) => i.checked) && (
-                <div className="flex justify-end mb-2">
-                  <button
-                    onClick={clearChecked}
-                    className="text-xs text-gray-400 hover:text-red-500"
-                  >
-                    清除已购买
-                  </button>
-                </div>
+              {/* 进度条 */}
+              {shoppingTotal > 0 && (
+                <motion.div variants={fadeUp} className="mb-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-gray-500">
+                      已购买 {shoppingDone}/{shoppingTotal}
+                    </span>
+                    {shoppingDone > 0 && (
+                      <button
+                        onClick={clearChecked}
+                        className="text-xs text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        清除已购买
+                      </button>
+                    )}
+                  </div>
+                  <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-gradient-to-r from-[#FF6B35] to-orange-400 rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${shoppingTotal > 0 ? (shoppingDone / shoppingTotal) * 100 : 0}%` }}
+                      transition={{ duration: 0.4 }}
+                    />
+                  </div>
+                </motion.div>
               )}
 
               {shopping.length === 0 ? (
-                <p className="text-center text-gray-400 py-12">买菜清单是空的</p>
+                <EmptyState emoji="🛒" text="买菜清单是空的" sub="添加需要购买的食材" />
               ) : (
                 shopping.map((item) => (
-                  <div
+                  <motion.div
                     key={item.id}
-                    className={`flex items-center gap-3 p-3 rounded-xl border shadow-sm transition-all ${
+                    variants={fadeUp}
+                    layout
+                    className={`group flex items-center gap-3 p-3.5 rounded-2xl border shadow-sm transition-all ${
                       item.checked
-                        ? "bg-gray-50 border-gray-100 opacity-60"
-                        : "bg-white border-gray-100"
+                        ? "bg-gray-50/80 border-gray-100"
+                        : "bg-white border-gray-100 hover:shadow-md hover:border-green-100"
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={item.checked}
-                      onChange={() => toggleChecked(item.id, item.checked)}
-                      className="w-4 h-4 rounded accent-[#FF6B35]"
-                    />
-                    <span
-                      className={`flex-1 text-sm ${
-                        item.checked ? "line-through text-gray-400" : "text-gray-800"
+                    <button
+                      onClick={() => toggleChecked(item.id, item.checked)}
+                      className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                        item.checked
+                          ? "bg-[#FF6B35] border-[#FF6B35]"
+                          : "border-gray-300 hover:border-[#FF6B35]"
                       }`}
                     >
-                      {item.item_name}
-                      {item.amount && (
-                        <span className="text-gray-400 ml-2">{item.amount}</span>
+                      {item.checked && (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
                       )}
-                    </span>
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <span
+                        className={`text-sm block truncate transition-all ${
+                          item.checked ? "line-through text-gray-400" : "text-gray-800 font-medium"
+                        }`}
+                      >
+                        {item.item_name}
+                      </span>
+                      {item.amount && (
+                        <span className="text-[11px] text-gray-400">{item.amount}</span>
+                      )}
+                      {item.related_recipe && (
+                        <span className="text-[11px] text-gray-400 ml-2">
+                          📎 {item.related_recipe}
+                        </span>
+                      )}
+                    </div>
                     <button
                       onClick={() => removeShoppingItem(item.id)}
-                      className="text-gray-400 hover:text-red-500 text-lg"
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-gray-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
                     >
-                      ×
+                      <span className="text-base leading-none">×</span>
                     </button>
-                  </div>
+                  </motion.div>
                 ))
               )}
-            </div>
+            </motion.div>
           )}
         </motion.div>
       </AnimatePresence>
     </main>
+  );
+}
+
+/** 空状态组件 */
+function EmptyState({ emoji, text, sub }: { emoji: string; text: string; sub: string }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="flex flex-col items-center justify-center py-16"
+    >
+      <div className="text-5xl mb-4 opacity-50">{emoji}</div>
+      <p className="text-gray-500 font-medium">{text}</p>
+      <p className="text-xs text-gray-400 mt-1">{sub}</p>
+    </motion.div>
   );
 }
