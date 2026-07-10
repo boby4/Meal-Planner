@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -42,8 +42,11 @@ export function RecipeDetail({ recipe }: RecipeDetailProps) {
     }
   };
 
-  // 记录浏览历史
+  // 记录浏览历史（防止 StrictMode 重复调用）
+  const historySent = useRef(false);
   useEffect(() => {
+    if (historySent.current) return;
+    historySent.current = true;
     authFetch("/api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
