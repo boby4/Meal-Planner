@@ -4,6 +4,8 @@ import { callDeepSeek, parseDeepSeekJSON } from "@/lib/deepseek";
 import { buildRecipeDetailPrompt } from "@/lib/prompts";
 import type { RecipeDetail } from "@/lib/types";
 
+export const runtime = "edge";
+
 /** GET /api/recipe?name=xxx - 查询菜谱详情 */
 export async function GET(request: NextRequest) {
   try {
