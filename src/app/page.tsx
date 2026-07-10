@@ -14,13 +14,19 @@ type HomeView = "main" | "ai" | "ingredient";
 export default function HomePage() {
   const router = useRouter();
   const [view, setView] = useState<HomeView>("main");
+  const [isRandomLoading, setIsRandomLoading] = useState(false);
   const { randomRecommend, aiRecommend, ingredientRecommend } =
     useRecommendation();
   const { isLoading } = useMealStore();
 
   const handleRandom = async () => {
-    await randomRecommend();
-    router.push("/recommend");
+    setIsRandomLoading(true);
+    try {
+      await randomRecommend();
+      router.push("/recommend");
+    } finally {
+      setIsRandomLoading(false);
+    }
   };
 
   const handleAISubmit = async () => {
@@ -69,17 +75,37 @@ export default function HomePage() {
             >
               <Button
                 onClick={handleRandom}
-                disabled={isLoading}
+                disabled={isRandomLoading}
                 className="w-full h-auto py-5 rounded-3xl bg-[#FF6B35] hover:bg-[#E55A2B] text-white shadow-lg shadow-orange-200/50 text-left"
               >
                 <div className="flex items-center gap-4 w-full">
-                  <span className="text-3xl">🎲</span>
-                  <div className="text-left">
-                    <div className="font-bold text-base">今天吃什么</div>
-                    <div className="text-xs opacity-80 mt-0.5">
-                      随机推荐一道菜，治好选择困难症
-                    </div>
-                  </div>
+                  {isRandomLoading ? (
+                    <>
+                      <motion.span
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                        className="text-3xl inline-block"
+                      >
+                        🎲
+                      </motion.span>
+                      <div className="text-left">
+                        <div className="font-bold text-base">正在挑选菜谱...</div>
+                        <div className="text-xs opacity-80 mt-0.5">
+                          AI 正在为你寻找今天的惊喜
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-3xl">🎲</span>
+                      <div className="text-left">
+                        <div className="font-bold text-base">今天吃什么</div>
+                        <div className="text-xs opacity-80 mt-0.5">
+                          随机推荐一道菜，治好选择困难症
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </Button>
             </motion.div>
