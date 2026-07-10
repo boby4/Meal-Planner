@@ -1,13 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/cloudflare";
-import { getAuthFromRequest } from "@/lib/auth";
-
-/** 构建用户过滤条件 */
-function userFilter(userId: number | null, deviceId: string): { clause: string; binds: (string | number)[] } {
-  if (userId) return { clause: "user_id = ?", binds: [userId] };
-  if (deviceId) return { clause: "user_id IS NULL AND device_id = ?", binds: [deviceId] };
-  return { clause: "1 = 0", binds: [] }; // 无身份则无数据
-}
+import { requireAuth, AuthRequiredError } from "@/lib/auth";
 
 /** GET /api/favorites */
 export async function GET(request: NextRequest) {
@@ -15,12 +8,11 @@ export async function GET(request: NextRequest) {
     const env = await getEnv();
     if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
 
-    const { userId, deviceId } = await getAuthFromRequest(request);
-    const { clause, binds } = userFilter(userId, deviceId);
+    const { userId } = await requireAuth(request);
 
     const result = await env.DB.prepare(
-      `SELECT id, recipe_name, recipe_data, created_at FROM favorites WHERE ${clause} ORDER BY created_at DESC LIMIT 100`
-    ).bind(...binds).all();
+      `SELECT id, recipe_name, recipe_data, created_at FROM favorites WHERE user_id = ? ORDER BY created_at DESC LIMIT 100`
+    ).bind(userId).all();
 
     const favorites = result.results.map((row: Record<string, unknown>) => ({
       id: row.id,
@@ -31,6 +23,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ favorites });
   } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
     console.error("GET /api/favorites 错误:", error);
     return NextResponse.json({ error: "获取收藏失败" }, { status: 500 });
   }
@@ -42,16 +37,19 @@ export async function POST(request: NextRequest) {
     const env = await getEnv();
     if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
 
-    const { userId, deviceId } = await getAuthFromRequest(request);
+    const { userId } = await requireAuth(request);
     const { recipe_name, recipe_data } = await request.json();
     if (!recipe_name) return NextResponse.json({ error: "缺少 recipe_name" }, { status: 400 });
 
     await env.DB.prepare(
-      "INSERT OR REPLACE INTO favorites (user_id, device_id, recipe_name, recipe_data) VALUES (?, ?, ?, ?)"
-    ).bind(userId, userId ? "" : deviceId, recipe_name, recipe_data ? JSON.stringify(recipe_data) : null).run();
+      "INSERT OR REPLACE INTO favorites (user_id, device_id, recipe_name, recipe_data) VALUES (?, '', ?, ?)"
+    ).bind(userId, recipe_name, recipe_data ? JSON.stringify(recipe_data) : null).run();
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
     console.error("POST /api/favorites 错误:", error);
     return NextResponse.json({ error: "收藏失败" }, { status: 500 });
   }
@@ -63,19 +61,21 @@ export async function DELETE(request: NextRequest) {
     const env = await getEnv();
     if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
 
-    const { userId, deviceId } = await getAuthFromRequest(request);
-    const { clause, binds } = userFilter(userId, deviceId);
+    const { userId } = await requireAuth(request);
 
     const { searchParams } = new URL(request.url);
     const name = searchParams.get("name");
     if (!name) return NextResponse.json({ error: "缺少 name 参数" }, { status: 400 });
 
     await env.DB.prepare(
-      `DELETE FROM favorites WHERE ${clause} AND recipe_name = ?`
-    ).bind(...binds, name).run();
+      `DELETE FROM favorites WHERE user_id = ? AND recipe_name = ?`
+    ).bind(userId, name).run();
 
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof AuthRequiredError) {
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
     console.error("DELETE /api/favorites 错误:", error);
     return NextResponse.json({ error: "取消收藏失败" }, { status: 500 });
   }

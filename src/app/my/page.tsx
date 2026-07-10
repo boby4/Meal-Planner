@@ -39,7 +39,7 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 export default function MyPage() {
-  const { user, logout, authFetch } = useAuth();
+  const { user, logout, authFetch, loading: authLoading } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("favorites");
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
@@ -182,8 +182,32 @@ export default function MyPage() {
         )}
       </motion.div>
 
-      {/* Tabs */}
-      <div className="flex gap-1.5 mb-5 p-1 bg-gray-100 rounded-2xl">
+      {/* 未登录提示 */}
+      {!authLoading && !user && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex-1 flex flex-col items-center justify-center px-4"
+        >
+          <div className="text-6xl mb-6">🔒</div>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">请先登录</h2>
+          <p className="text-sm text-gray-500 text-center mb-8">
+            登录后即可查看收藏、浏览历史和买菜清单
+          </p>
+          <Link
+            href="/login"
+            className="px-8 py-3.5 bg-[#FF6B35] hover:bg-[#E55A2B] text-white font-medium rounded-full shadow-lg shadow-orange-200/50 transition-all active:scale-95"
+          >
+            登录 / 注册
+          </Link>
+        </motion.div>
+      )}
+
+      {/* 已登录内容 */}
+      {user && (
+        <>
+          {/* Tabs */}
+          <div className="flex gap-1.5 mb-5 p-1 bg-gray-100 rounded-2xl">
         {tabs.map((t) => (
           <button
             key={t.key}
@@ -410,6 +434,8 @@ export default function MyPage() {
           )}
         </motion.div>
       </AnimatePresence>
+        </>
+      )}
     </main>
   );
 }

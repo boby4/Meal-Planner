@@ -27,13 +27,14 @@ interface ShoppingItem {
 }
 
 export function IngredientInput({ onSubmit }: IngredientInputProps) {
-  const { authFetch } = useAuth();
+  const { authFetch, user } = useAuth();
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [recentItems, setRecentItems] = useState<ShoppingItem[]>([]);
 
-  // 加载买菜清单最近 8 条
+  // 加载买菜清单最近 8 条（仅登录用户）
   const loadRecent = useCallback(async () => {
+    if (!user) return;
     try {
       const res = await authFetch("/api/shopping");
       const data = await res.json();
@@ -41,28 +42,30 @@ export function IngredientInput({ onSubmit }: IngredientInputProps) {
       // 取最近添加的 8 条（API 已按 created_at DESC 排序）
       setRecentItems(items.slice(0, MAX_RECENT));
     } catch { /* ignore */ }
-  }, [authFetch]);
+  }, [authFetch, user]);
 
   useEffect(() => {
     loadRecent();
   }, [loadRecent]);
 
-  // 添加食材到当前列表 + 保存到买菜清单
+  // 添加食材到当前列表 + 保存到买菜清单（仅登录用户）
   const addIngredient = async () => {
     const trimmed = inputValue.trim();
     if (trimmed && !ingredients.includes(trimmed)) {
       setIngredients([...ingredients, trimmed]);
       setInputValue("");
 
-      // 同步保存到买菜清单（如果清单里还没有）
-      const exists = recentItems.some((i) => i.item_name === trimmed);
-      if (!exists) {
-        await authFetch("/api/shopping", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ item_name: trimmed, related_recipe: "" }),
-        });
-        loadRecent();
+      // 同步保存到买菜清单（仅登录用户且清单里还没有）
+      if (user) {
+        const exists = recentItems.some((i) => i.item_name === trimmed);
+        if (!exists) {
+          await authFetch("/api/shopping", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ item_name: trimmed, related_recipe: "" }),
+          });
+          loadRecent();
+        }
       }
     }
   };
@@ -71,9 +74,11 @@ export function IngredientInput({ onSubmit }: IngredientInputProps) {
     setIngredients(ingredients.filter((_, i) => i !== index));
   };
 
-  // 从最近列表删除（同步删除买菜清单）
+  // 从最近列表删除（同步删除买菜清单，仅登录用户）
   const removeFromRecent = async (item: ShoppingItem) => {
-    await authFetch(`/api/shopping?id=${item.id}`, { method: "DELETE" });
+    if (user) {
+      await authFetch(`/api/shopping?id=${item.id}`, { method: "DELETE" });
+    }
     setRecentItems((prev) => prev.filter((i) => i.id !== item.id));
     // 同时从当前选中移除
     setIngredients((prev) => prev.filter((name) => name !== item.item_name));

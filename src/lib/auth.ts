@@ -158,3 +158,19 @@ export async function getAuthFromRequest(request: Request): Promise<{ userId: nu
 
   return { userId, deviceId };
 }
+
+/** 要求登录：未登录返回 401 */
+export async function requireAuth(request: Request): Promise<{ userId: number }> {
+  const { userId } = await getAuthFromRequest(request);
+  if (!userId) {
+    throw new AuthRequiredError();
+  }
+  return { userId };
+}
+
+export class AuthRequiredError extends Error {
+  constructor() {
+    super("请先登录");
+    this.name = "AuthRequiredError";
+  }
+}

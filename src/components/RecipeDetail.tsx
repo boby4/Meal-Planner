@@ -12,10 +12,11 @@ interface RecipeDetailProps {
 }
 
 export function RecipeDetail({ recipe }: RecipeDetailProps) {
-  const { authFetch } = useAuth();
+  const { authFetch, user } = useAuth();
   const [isFavorited, setIsFavorited] = useState(false);
 
   useEffect(() => {
+    if (!user) return;
     // 检查是否已收藏
     authFetch("/api/favorites")
       .then((r) => r.json())
@@ -26,9 +27,10 @@ export function RecipeDetail({ recipe }: RecipeDetailProps) {
         setIsFavorited(!!found);
       })
       .catch(() => {});
-  }, [recipe.name, authFetch]);
+  }, [recipe.name, authFetch, user]);
 
   const toggleFavorite = async () => {
+    if (!user) return;
     if (isFavorited) {
       await authFetch(`/api/favorites?name=${encodeURIComponent(recipe.name)}`, { method: "DELETE" });
       setIsFavorited(false);
@@ -42,17 +44,17 @@ export function RecipeDetail({ recipe }: RecipeDetailProps) {
     }
   };
 
-  // 记录浏览历史（防止 StrictMode 重复调用）
+  // 记录浏览历史（仅登录用户，防止 StrictMode 重复调用）
   const historySent = useRef(false);
   useEffect(() => {
-    if (historySent.current) return;
+    if (!user || historySent.current) return;
     historySent.current = true;
     authFetch("/api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recipe_name: recipe.name, recipe_data: recipe, source: "detail" }),
     }).catch(() => {});
-  }, [recipe, authFetch]);
+  }, [recipe, authFetch, user]);
 
   return (
     <motion.div
@@ -86,7 +88,7 @@ export function RecipeDetail({ recipe }: RecipeDetailProps) {
             onClick={toggleFavorite}
             className="flex-shrink-0 ml-3 text-2xl transition-transform"
           >
-            {isFavorited ? "❤️" : "🤍"}
+            {isFavorited ? "❤️" : user ? "🤍" : ""}
           </motion.button>
         </div>
         {recipe.description && (
