@@ -34,7 +34,7 @@ export default function HomePage() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchTotal, setSearchTotal] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
-  const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const doSearch = useCallback(async (q: string) => {
@@ -62,10 +62,8 @@ export default function HomePage() {
     }
   }, [view]);
 
-  const handleSearchInput = (value: string) => {
-    setSearchQuery(value);
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => doSearch(value), 400);
+  const handleSearchSubmit = () => {
+    if (searchQuery.trim()) doSearch(searchQuery.trim());
   };
 
   const handleRandom = async () => {
@@ -306,24 +304,34 @@ export default function HomePage() {
             </Button>
 
             {/* 搜索输入框 */}
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => handleSearchInput(e.target.value)}
-                placeholder="输入菜名，如：红烧肉、番茄炒蛋..."
-                className="w-full pl-12 pr-10 py-4 rounded-2xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 focus:border-[#FF6B35] transition-all shadow-sm text-base"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => { setSearchQuery(""); setSearchResults([]); searchInputRef.current?.focus(); }}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg"
-                >
-                  ✕
-                </button>
-              )}
+            <div className="relative flex gap-2">
+              <div className="relative flex-1">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSearchSubmit(); }}
+                  placeholder="输入菜名，如：红烧肉、番茄炒蛋..."
+                  className="w-full pl-12 pr-10 py-4 rounded-2xl border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 focus:border-[#FF6B35] transition-all shadow-sm text-base"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => { setSearchQuery(""); setSearchResults([]); searchInputRef.current?.focus(); }}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-lg"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={handleSearchSubmit}
+                disabled={!searchQuery.trim() || isSearching}
+                className="px-6 py-4 rounded-2xl bg-[#FF6B35] text-white font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all"
+              >
+                {isSearching ? "搜索中..." : "搜索"}
+              </button>
             </div>
 
             {/* 搜索结果 */}
