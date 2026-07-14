@@ -31,6 +31,7 @@ export function IngredientInput({ onSubmit }: IngredientInputProps) {
   const [ingredients, setIngredients] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [recentItems, setRecentItems] = useState<ShoppingItem[]>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   // 加载买菜清单最近 8 条（仅登录用户）
   const loadRecent = useCallback(async () => {
@@ -102,9 +103,14 @@ export function IngredientInput({ onSubmit }: IngredientInputProps) {
     }
   };
 
-  const handleSubmit = () => {
-    if (ingredients.length > 0) {
-      onSubmit(ingredients);
+  const handleSubmit = async () => {
+    if (ingredients.length > 0 && !submitting) {
+      setSubmitting(true);
+      try {
+        await onSubmit(ingredients);
+      } finally {
+        setSubmitting(false);
+      }
     }
   };
 
@@ -221,10 +227,19 @@ export function IngredientInput({ onSubmit }: IngredientInputProps) {
           {/* 提交按钮 */}
           <Button
             onClick={handleSubmit}
-            disabled={ingredients.length === 0}
+            disabled={ingredients.length === 0 || submitting}
             className="w-full rounded-full py-6 text-base font-medium bg-[#FF6B35] hover:bg-[#E55A2B] text-white disabled:opacity-50"
           >
-            {ingredients.length === 0
+            {submitting ? (
+              <span className="inline-flex items-center gap-2">
+                <motion.span
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  className="inline-block"
+                >🍳</motion.span>
+                正在推荐中...
+              </span>
+            ) : ingredients.length === 0
               ? "请先添加食材"
               : `用 ${ingredients.length} 种食材推荐菜品`}
           </Button>
