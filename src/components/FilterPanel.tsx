@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -30,7 +31,7 @@ const TIME_OPTIONS = ["15分钟内", "30分钟内", "1小时内", "1小时以上
 const BUDGET_OPTIONS = ["10元以内", "30元以内", "50元以内", "不限预算"];
 
 interface FilterPanelProps {
-  onSubmit: () => void;
+  onSubmit: () => void | Promise<void>;
 }
 
 /** 选项按钮（单选） */
@@ -86,6 +87,7 @@ function MultiSelectButton({
 
 export function FilterPanel({ onSubmit }: FilterPanelProps) {
   const { filters, setFilters } = useMealStore();
+  const [submitting, setSubmitting] = useState(false);
 
   const { control, handleSubmit } = useForm<FilterFormData>({
     resolver: zodResolver(filterSchema),
@@ -98,7 +100,8 @@ export function FilterPanel({ onSubmit }: FilterPanelProps) {
     },
   });
 
-  const onFormSubmit = (data: FilterFormData) => {
+  const onFormSubmit = async (data: FilterFormData) => {
+    if (submitting) return;
     setFilters({
       people: data.people,
       taste: data.taste,
@@ -106,7 +109,12 @@ export function FilterPanel({ onSubmit }: FilterPanelProps) {
       budget: data.budget,
       isDiet: data.isDiet,
     });
-    onSubmit();
+    setSubmitting(true);
+    try {
+      await onSubmit();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -292,9 +300,21 @@ export function FilterPanel({ onSubmit }: FilterPanelProps) {
             {/* 提交按钮 */}
             <Button
               type="submit"
-              className="w-full rounded-full py-6 text-base font-bold bg-[#FF6B35] hover:bg-[#E55A2B] text-white shadow-lg shadow-orange-200/60 transition-all duration-200 hover:shadow-xl hover:shadow-orange-200/80"
+              disabled={submitting}
+              className="w-full rounded-full py-6 text-base font-bold bg-[#FF6B35] hover:bg-[#E55A2B] text-white shadow-lg shadow-orange-200/60 transition-all duration-200 hover:shadow-xl hover:shadow-orange-200/80 disabled:opacity-50"
             >
-              ✨ 让 AI 推荐
+              {submitting ? (
+                <span className="inline-flex items-center gap-2">
+                  <motion.span
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    className="inline-block"
+                  >🤖</motion.span>
+                  AI 正在推荐...
+                </span>
+              ) : (
+                "✨ 让 AI 推荐"
+              )}
             </Button>
           </form>
         </CardContent>
