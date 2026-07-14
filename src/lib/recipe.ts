@@ -62,12 +62,14 @@ async function fetchBatchFromHF(offset: number): Promise<RecipeSource[]> {
   });
 
   if (!res.ok) {
+    console.error(`[Recipe] HF 批次 offset=${offset} 失败: HTTP ${res.status}`);
     throw new Error(`HuggingFace API 错误: ${res.status}`);
   }
 
   const json = (await res.json()) as { rows: { row: HFRawRecipe }[] };
 
   if (!Array.isArray(json.rows)) {
+    console.warn(`[Recipe] HF 批次 offset=${offset} 返回格式异常: rows 不是数组`);
     return [];
   }
 
@@ -77,6 +79,7 @@ async function fetchBatchFromHF(offset: number): Promise<RecipeSource[]> {
     if (recipe) recipes.push(recipe);
   }
 
+  console.log(`[Recipe] HF 批次 offset=${offset} 成功: ${recipes.length}/${json.rows.length} 条有效`);
   return recipes;
 }
 
@@ -84,16 +87,24 @@ async function fetchBatchFromHF(offset: number): Promise<RecipeSource[]> {
 async function getFromKV(): Promise<RecipeSource[] | null> {
   try {
     const env = await getEnv();
-    if (!env?.RECIPE_CACHE) return null;
+    if (!env?.RECIPE_CACHE) {
+      console.log("[Recipe] KV 不可用（无 RECIPE_CACHE binding）");
+      return null;
+    }
     const raw = await env.RECIPE_CACHE.get(KV_CACHE_KEY, "text");
-    if (!raw) return null;
+    if (!raw) {
+      console.log("[Recipe] KV 缓存为空");
+      return null;
+    }
     const parsed = JSON.parse(raw) as CacheEntry;
     if (Date.now() < parsed.expiresAt) {
-      console.log(`KV 缓存命中: ${parsed.data.length} 条`);
+      console.log(`[Recipe] KV 缓存命中: ${parsed.data.length} 条，剩余 ${(parsed.expiresAt - Date.now()) / 1000 | 0}s`);
       return parsed.data;
     }
+    console.log(`[Recipe] KV 缓存已过期: 过期 ${((Date.now() - parsed.expiresAt) / 1000 | 0)}s`);
     return null;
-  } catch {
+  } catch (err) {
+    console.warn("[Recipe] KV 读取失败:", err);
     return null;
   }
 }
@@ -117,21 +128,40 @@ async function fetchFromHF(): Promise<RecipeSource[]> {
   const offsets = Array.from({ length: BATCH_COUNT }, () =>
     Math.floor(Math.random() * (TOTAL_RECIPES - BATCH_SIZE))
   );
-  const batches = await Promise.all(
+  // 使用 allSettled：单批失败不影响其他批次
+  const results = await Promise.allSettled(
     offsets.map((offset) => fetchBatchFromHF(offset))
   );
-  return batches.flat();
+  const recipes: RecipeSource[] = [];
+  let failed = 0;
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      recipes.push(...result.value);
+    } else {
+      failed++;
+      console.error(`[Recipe] HF 批次失败:`, result.reason);
+    }
+  }
+  console.log(`[Recipe] HF 拉取完成: ${BATCH_COUNT - failed}/${BATCH_COUNT} 批成功, 共 ${recipes.length} 条`);
+  if (recipes.length === 0) {
+    throw new Error("HuggingFace 所有批次均失败");
+  }
+  return recipes;
 }
 
 /** 加载菜谱数据（KV 优先 → HuggingFace → 内存缓存降级） */
 async function loadRecipes(): Promise<RecipeSource[]> {
   // 1. 内存缓存检查
   if (memoryCache && Date.now() < memoryCache.expiresAt) {
+    console.log(`[Recipe] 内存缓存命中: ${memoryCache.data.length} 条，剩余 ${(memoryCache.expiresAt - Date.now()) / 1000 | 0}s`);
     return memoryCache.data;
   }
 
   // 2. 避免并发重复请求
-  if (loadingPromise) return loadingPromise;
+  if (loadingPromise) {
+    console.log("[Recipe] 已有加载中请求，复用");
+    return loadingPromise;
+  }
 
   loadingPromise = (async () => {
     try {
@@ -152,8 +182,13 @@ async function loadRecipes(): Promise<RecipeSource[]> {
 
       return data;
     } catch (err) {
-      console.error("HuggingFace 加载失败:", err);
-      if (memoryCache) return memoryCache.data;
+      console.error("[Recipe] 加载失败:", err);
+      // 降级：即使缓存过期也返回，总比空数组好
+      if (memoryCache) {
+        console.log(`[Recipe] 降级使用过期内存缓存: ${memoryCache.data.length} 条，已过期 ${((Date.now() - memoryCache.expiresAt) / 1000 | 0)}s`);
+        return memoryCache.data;
+      }
+      console.error("[Recipe] 无任何缓存可用，返回空数组");
       return [];
     } finally {
       loadingPromise = null;
