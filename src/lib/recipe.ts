@@ -3,42 +3,277 @@ import { getEnv } from "./cloudflare";
 
 // ===== 常量 =====
 const CHUNK_COUNT = 21; // chunk_000.json ~ chunk_020.json
-const CHUNKS_PER_RECIPE = 80000; // 每个分片约 80000 条
-const MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 分钟
+const ESTIMATED_CHUNK_SIZE = 55 * 1024 * 1024; // 约 55MB
+const READ_SIZE = 512 * 1024; // 每次读取 512KB（足够解析 ~800 条菜谱）
+const MEMORY_CACHE_TTL = 10 * 60 * 1000; // 10 分钟
+const INDEX_READ_SIZE = 2 * 1024 * 1024; // 索引每次读 2MB
 
 interface CacheEntry {
-  chunkIndex: number;
   data: RecipeSource[];
   expiresAt: number;
 }
 
-// 内存缓存（缓存当前已加载的分片）
+// 内存缓存
 let memoryCache: CacheEntry | null = null;
-let indexCache: { name: string; chunk: number }[] | null = null;
-let indexCacheExpiresAt = 0;
+let loadingPromise: Promise<RecipeSource[]> | null = null;
 
-// ===== R2 读取 =====
+// ===== R2 范围读取 =====
 
-/** 从 R2 读取一个分片文件 */
-async function readChunkFromR2(chunkIndex: number): Promise<RecipeSource[]> {
+/**
+ * 从 R2 JSON 数组文件的随机位置读取一段，提取完整的 JSON 对象
+ * 避免加载整个 55MB 文件到内存
+ */
+async function readRandomRecipesFromChunk(
+  chunkIndex: number
+): Promise<RecipeSource[]> {
   const env = await getEnv();
   if (!env?.RECIPE_DATA) {
-    console.warn("[Recipe] R2 不可用（无 RECIPE_DATA binding）");
+    console.warn("[Recipe] R2 不可用");
     return [];
   }
 
   const filename = `chunk_${String(chunkIndex).padStart(3, "0")}.json`;
-  console.log(`[Recipe] 从 R2 读取 ${filename}`);
 
-  const obj = await env.RECIPE_DATA.get(filename);
-  if (!obj) {
+  // 先 head 获取文件大小
+  const head = await env.RECIPE_DATA.head(filename);
+  if (!head) {
     console.error(`[Recipe] R2 文件不存在: ${filename}`);
     return [];
   }
 
-  const text = await obj.text();
-  console.log(`[Recipe] R2 读取 ${filename}: ${(text.length / 1024 / 1024).toFixed(1)}MB`);
+  const fileSize = head.size;
+  console.log(`[Recipe] ${filename} 大小: ${(fileSize / 1024 / 1024).toFixed(1)}MB`);
 
+  // 随机偏移（跳过开头的 [ ，从第 2 字节之后开始）
+  const maxOffset = Math.max(2, fileSize - READ_SIZE);
+  const offset = Math.floor(Math.random() * maxOffset);
+  const end = Math.min(offset + READ_SIZE, fileSize - 1);
+
+  console.log(`[Recipe] 读取 ${filename} 字节范围: ${offset}-${end} (${((end - offset) / 1024).toFixed(0)}KB)`);
+
+  const obj = await env.RECIPE_DATA.get(filename, {
+    range: { offset, length: end - offset + 1 },
+  });
+  if (!obj) return [];
+
+  const text = await obj.text();
+
+  // 从文本中提取完整的 JSON 对象
+  return extractRecipesFromSlice(text);
+}
+
+/** 从 JSON 数组的片段中提取完整的菜谱对象 */
+function extractRecipesFromSlice(text: string): RecipeSource[] {
+  const recipes: RecipeSource[] = [];
+
+  // 找到第一个 { 和最后一个 } 之间的内容
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    return [];
+  }
+
+  // 从 firstBrace 开始，逐个提取完整的 JSON 对象
+  let pos = firstBrace;
+  while (pos < lastBrace) {
+    const objStart = text.indexOf("{", pos);
+    if (objStart === -1 || objStart > lastBrace) break;
+
+    // 找到匹配的 } （简单计数法，处理嵌套）
+    const objEnd = findMatchingBrace(text, objStart);
+    if (objEnd === -1 || objEnd > lastBrace) break;
+
+    const jsonStr = text.slice(objStart, objEnd + 1);
+    try {
+      const raw = JSON.parse(jsonStr) as {
+        name?: string;
+        description?: string;
+        ingredients?: string[];
+        steps?: string[];
+      };
+      if (raw.name) {
+        recipes.push({
+          name: raw.name,
+          description: (raw.description || "").slice(0, 200),
+          ingredients: Array.isArray(raw.ingredients)
+            ? raw.ingredients.slice(0, 20)
+            : [],
+          steps: Array.isArray(raw.steps) ? raw.steps.slice(0, 15) : [],
+        });
+      }
+    } catch {
+      // 跳过解析失败的片段
+    }
+
+    pos = objEnd + 1;
+  }
+
+  return recipes;
+}
+
+/** 找到与位置 start 处的 { 匹配的 } 的位置 */
+function findMatchingBrace(text: string, start: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+
+  return -1;
+}
+
+// ===== 搜索相关 =====
+
+/** 从 R2 索引文件的特定范围读取条目 */
+async function readIndexRange(
+  offset: number,
+  length: number
+): Promise<{ name: string; chunk: number }[]> {
+  const env = await getEnv();
+  if (!env?.RECIPE_DATA) return [];
+
+  const obj = await env.RECIPE_DATA.get("index.json", {
+    range: { offset, length },
+  });
+  if (!obj) return [];
+
+  const text = await obj.text();
+  const entries: { name: string; chunk: number }[] = [];
+
+  // 提取完整的 {"name":...,"chunk":N} 对象
+  let pos = text.indexOf("{");
+  while (pos !== -1) {
+    const end = text.indexOf("}", pos);
+    if (end === -1) break;
+    try {
+      const entry = JSON.parse(text.slice(pos, end + 1)) as {
+        name: string;
+        chunk: number;
+      };
+      if (entry.name !== undefined && entry.chunk !== undefined) {
+        entries.push(entry);
+      }
+    } catch {
+      // skip
+    }
+    pos = text.indexOf("{", end + 1);
+  }
+
+  return entries;
+}
+
+/** 搜索菜谱（通过索引范围读取） */
+export async function searchRecipes(
+  query: string
+): Promise<RecipeSource[]> {
+  const lowerQuery = query.toLowerCase();
+  const env = await getEnv();
+
+  // 获取索引文件大小
+  const head = await env?.RECIPE_DATA?.head("index.json");
+  if (!head) {
+    console.warn("[Recipe] 索引不可用，降级到缓存搜索");
+    return (memoryCache?.data || []).filter((r) =>
+      r.name.toLowerCase().includes(lowerQuery)
+    );
+  }
+
+  const fileSize = head.size;
+  console.log(`[Recipe] 搜索 "${query}"，索引大小: ${(fileSize / 1024 / 1024).toFixed(1)}MB`);
+
+  // 分段读取索引，查找匹配项
+  const matchNames = new Set<string>();
+  const matchChunks = new Set<number>();
+  const stride = INDEX_READ_SIZE;
+
+  for (let offset = 0; offset < fileSize; offset += stride) {
+    const length = Math.min(stride, fileSize - offset);
+    const entries = await readIndexRange(offset, length);
+
+    for (const entry of entries) {
+      if (entry.name.toLowerCase().includes(lowerQuery)) {
+        matchNames.add(entry.name);
+        matchChunks.add(entry.chunk);
+      }
+    }
+
+    // 限制最大搜索量（避免读太多）
+    if (offset > 20 * 1024 * 1024) {
+      console.warn("[Recipe] 搜索已扫描 20MB 索引，停止");
+      break;
+    }
+  }
+
+  if (matchNames.size === 0) {
+    console.log(`[Recipe] 搜索 "${query}": 无匹配`);
+    return [];
+  }
+
+  console.log(
+    `[Recipe] 搜索 "${query}": 匹配 ${matchNames.size} 条，涉及 ${matchChunks.size} 个分片`
+  );
+
+  // 读取匹配的分片，提取对应菜谱
+  const results: RecipeSource[] = [];
+  const chunkArr = [...matchChunks];
+
+  // 并行读取分片（限制并发）
+  for (let i = 0; i < chunkArr.length && results.length < 50; i += 3) {
+    const batch = chunkArr.slice(i, i + 3);
+    const chunkResults = await Promise.allSettled(
+      batch.map((ci) => readFullChunk(ci))
+    );
+
+    for (const result of chunkResults) {
+      if (result.status === "fulfilled") {
+        for (const recipe of result.value) {
+          if (matchNames.has(recipe.name)) {
+            results.push(recipe);
+          }
+        }
+      }
+    }
+  }
+
+  console.log(`[Recipe] 搜索 "${query}": 返回 ${results.length} 条`);
+  return results;
+}
+
+/** 读取整个分片（仅用于搜索时获取匹配的菜谱） */
+async function readFullChunk(chunkIndex: number): Promise<RecipeSource[]> {
+  const env = await getEnv();
+  if (!env?.RECIPE_DATA) return [];
+
+  const filename = `chunk_${String(chunkIndex).padStart(3, "0")}.json`;
+  const obj = await env.RECIPE_DATA.get(filename);
+  if (!obj) return [];
+
+  const text = await obj.text();
   const rawArr = JSON.parse(text) as Array<{
     name: string;
     description?: string;
@@ -46,168 +281,90 @@ async function readChunkFromR2(chunkIndex: number): Promise<RecipeSource[]> {
     steps?: string[];
   }>;
 
-  const recipes: RecipeSource[] = [];
-  for (const raw of rawArr) {
-    if (!raw.name) continue;
-    recipes.push({
-      name: raw.name,
-      description: (raw.description || "").slice(0, 200),
-      ingredients: Array.isArray(raw.ingredients) ? raw.ingredients.slice(0, 20) : [],
-      steps: Array.isArray(raw.steps) ? raw.steps.slice(0, 15) : [],
-    });
-  }
-
-  console.log(`[Recipe] 解析 ${filename}: ${recipes.length} 条有效菜谱`);
-  return recipes;
-}
-
-/** 从 R2 读取搜索索引 */
-async function readIndexFromR2(): Promise<{ name: string; chunk: number }[]> {
-  // 缓存检查
-  if (indexCache && Date.now() < indexCacheExpiresAt) {
-    return indexCache;
-  }
-
-  const env = await getEnv();
-  if (!env?.RECIPE_DATA) {
-    console.warn("[Recipe] R2 不可用");
-    return [];
-  }
-
-  console.log("[Recipe] 从 R2 读取搜索索引 index.json");
-  const obj = await env.RECIPE_DATA.get("index.json");
-  if (!obj) {
-    console.error("[Recipe] R2 索引文件不存在");
-    return [];
-  }
-
-  const text = await obj.text();
-  indexCache = JSON.parse(text) as { name: string; chunk: number }[];
-  indexCacheExpiresAt = Date.now() + MEMORY_CACHE_TTL;
-  console.log(`[Recipe] 索引加载完成: ${indexCache.length} 条`);
-  return indexCache;
+  return rawArr
+    .filter((r) => r.name)
+    .map((r) => ({
+      name: r.name,
+      description: (r.description || "").slice(0, 200),
+      ingredients: Array.isArray(r.ingredients) ? r.ingredients.slice(0, 20) : [],
+      steps: Array.isArray(r.steps) ? r.steps.slice(0, 15) : [],
+    }));
 }
 
 // ===== 核心 API =====
 
-/** 加载菜谱数据（内存缓存 → R2 随机分片） */
+/** 加载菜谱数据（缓存 → R2 范围读取） */
 async function loadRecipes(): Promise<RecipeSource[]> {
-  // 1. 内存缓存检查
+  // 内存缓存
   if (memoryCache && Date.now() < memoryCache.expiresAt) {
-    console.log(`[Recipe] 内存缓存命中: 分片 ${memoryCache.chunkIndex}, ${memoryCache.data.length} 条`);
+    console.log(`[Recipe] 内存缓存命中: ${memoryCache.data.length} 条`);
     return memoryCache.data;
   }
 
-  // 2. 随机选一个分片
-  const chunkIndex = Math.floor(Math.random() * CHUNK_COUNT);
-  console.log(`[Recipe] 随机选择分片: ${chunkIndex}`);
-
-  try {
-    const data = await readChunkFromR2(chunkIndex);
-    if (data.length > 0) {
-      memoryCache = { chunkIndex, data, expiresAt: Date.now() + MEMORY_CACHE_TTL };
-    }
-    return data;
-  } catch (err) {
-    console.error(`[Recipe] 读取分片 ${chunkIndex} 失败:`, err);
-    // 降级：返回过期缓存
-    if (memoryCache) {
-      console.log(`[Recipe] 降级使用过期内存缓存: ${memoryCache.data.length} 条`);
-      return memoryCache.data;
-    }
-    return [];
+  // 避免并发
+  if (loadingPromise) {
+    console.log("[Recipe] 复用加载中请求");
+    return loadingPromise;
   }
+
+  loadingPromise = (async () => {
+    try {
+      // 随机选分片，范围读取
+      const chunkIndex = Math.floor(Math.random() * CHUNK_COUNT);
+      console.log(`[Recipe] 随机选择分片: ${chunkIndex}`);
+
+      const data = await readRandomRecipesFromChunk(chunkIndex);
+      console.log(`[Recipe] 从 R2 获取: ${data.length} 条`);
+
+      if (data.length > 0) {
+        memoryCache = { data, expiresAt: Date.now() + MEMORY_CACHE_TTL };
+      }
+      return data;
+    } catch (err) {
+      console.error("[Recipe] 加载失败:", err);
+      if (memoryCache) {
+        console.log(`[Recipe] 降级使用缓存: ${memoryCache.data.length} 条`);
+        return memoryCache.data;
+      }
+      return [];
+    } finally {
+      loadingPromise = null;
+    }
+  })();
+
+  return loadingPromise;
 }
 
-/** 获取所有菜谱（当前分片） */
+/** 获取所有菜谱 */
 export async function getAllRecipes(): Promise<RecipeSource[]> {
   return loadRecipes();
-}
-
-/** 根据菜名搜索（通过索引 → 定位分片 → 读取数据） */
-export async function searchRecipes(query: string): Promise<RecipeSource[]> {
-  const lowerQuery = query.toLowerCase();
-
-  // 1. 读取索引，找到匹配的菜名和分片
-  const index = await readIndexFromR2();
-  if (index.length === 0) {
-    // 索引不可用，降级到当前分片搜索
-    const recipes = await loadRecipes();
-    return recipes.filter((r) => r.name.toLowerCase().includes(lowerQuery));
-  }
-
-  const matches = index.filter((item) => item.name.toLowerCase().includes(lowerQuery));
-  if (matches.length === 0) return [];
-
-  console.log(`[Recipe] 搜索 "${query}": 索引匹配 ${matches.length} 条`);
-
-  // 2. 获取需要读取的分片（去重）
-  const neededChunks = [...new Set(matches.map((m) => m.chunk))];
-  const matchNames = new Set(matches.map((m) => m.name));
-
-  // 3. 并行读取分片
-  const chunkResults = await Promise.allSettled(
-    neededChunks.map((ci) => {
-      // 如果刚好是缓存的分片，直接用
-      if (memoryCache && memoryCache.chunkIndex === ci) {
-        return Promise.resolve(memoryCache.data);
-      }
-      return readChunkFromR2(ci);
-    })
-  );
-
-  // 4. 合并结果
-  const results: RecipeSource[] = [];
-  for (const result of chunkResults) {
-    if (result.status === "fulfilled") {
-      for (const recipe of result.value) {
-        if (matchNames.has(recipe.name)) {
-          results.push(recipe);
-        }
-      }
-    }
-  }
-
-  console.log(`[Recipe] 搜索 "${query}": 返回 ${results.length} 条结果`);
-  return results;
 }
 
 /** 根据菜名精确查找 */
 export async function findRecipeByName(
   name: string
 ): Promise<RecipeSource | null> {
-  // 1. 通过索引定位分片
-  const index = await readIndexFromR2();
-  if (index.length > 0) {
-    // 精确匹配
-    const exact = index.find((item) => item.name === name);
-    // 模糊匹配
-    const fuzzy = !exact
-      ? index.find((item) => item.name.includes(name) || name.includes(item.name))
-      : null;
-    const match = exact || fuzzy;
-
-    if (match) {
-      let data: RecipeSource[];
-      if (memoryCache && memoryCache.chunkIndex === match.chunk) {
-        data = memoryCache.data;
-      } else {
-        data = await readChunkFromR2(match.chunk);
-      }
-      const recipe = data.find((r) => r.name === match.name);
-      if (recipe) return recipe;
-    }
-    return null;
+  // 先查缓存
+  if (memoryCache) {
+    const found = memoryCache.data.find(
+      (r) =>
+        r.name === name ||
+        r.name.includes(name) ||
+        name.includes(r.name)
+    );
+    if (found) return found;
   }
 
-  // 2. 索引不可用，降级到当前分片
-  const recipes = await loadRecipes();
-  const exactMatch = recipes.find((r) => r.name === name);
-  if (exactMatch) return exactMatch;
-  return recipes.find((r) => r.name.includes(name) || name.includes(r.name)) ?? null;
+  // 通过搜索获取
+  const results = await searchRecipes(name);
+  if (results.length > 0) {
+    const exact = results.find((r) => r.name === name);
+    return exact || results[0];
+  }
+  return null;
 }
 
-/** 随机获取一道菜（排除指定菜名） */
+/** 随机获取一道菜 */
 export async function getRandomRecipe(
   excludeNames: string[] = []
 ): Promise<RecipeSource | null> {
@@ -234,7 +391,7 @@ export async function getRandomRecipes(
   return shuffled.slice(0, Math.min(count, shuffled.length));
 }
 
-/** 解析食材字符串为 RecipeIngredient */
+/** 解析食材字符串 */
 function parseIngredient(raw: string): RecipeIngredient {
   const match = raw.match(/^(.+?)\s+(\d.+)$/);
   if (match) {
@@ -243,7 +400,7 @@ function parseIngredient(raw: string): RecipeIngredient {
   return { name: raw };
 }
 
-/** 将数据源格式转换为 RecipeDetail */
+/** 转换为 RecipeDetail */
 export function toRecipeDetail(source: RecipeSource): RecipeDetail {
   const ingredients: RecipeIngredient[] = source.ingredients.map(
     parseIngredient
