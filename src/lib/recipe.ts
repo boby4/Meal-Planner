@@ -1,226 +1,210 @@
 import type { RecipeSource, RecipeDetail, RecipeIngredient } from "./types";
 import { getEnv } from "./cloudflare";
 
-const HF_API =
-  "https://datasets-server.huggingface.co/rows?dataset=xzm1999/XiaChuFang_Recipe_Corpus&config=default&split=train";
-
-const TOTAL_RECIPES = 1550151;
-const BATCH_SIZE = 100;
-const BATCH_COUNT = 10;
-const KV_CACHE_KEY = "recipe_cache_v1";
-const KV_CACHE_TTL = 600; // 10 分钟（秒）
-const MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 分钟（毫秒）
+// ===== 常量 =====
+const CHUNK_COUNT = 21; // chunk_000.json ~ chunk_020.json
+const CHUNKS_PER_RECIPE = 80000; // 每个分片约 80000 条
+const MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 分钟
 
 interface CacheEntry {
+  chunkIndex: number;
   data: RecipeSource[];
   expiresAt: number;
 }
 
-// 内存缓存（fallback / 本地开发）
+// 内存缓存（缓存当前已加载的分片）
 let memoryCache: CacheEntry | null = null;
-let loadingPromise: Promise<RecipeSource[]> | null = null;
+let indexCache: { name: string; chunk: number }[] | null = null;
+let indexCacheExpiresAt = 0;
 
-/** HF 原始数据字段 */
-interface HFRawRecipe {
-  name?: string;
-  dish?: string;
-  description?: string;
-  recipeIngredient?: string[];
-  recipeInstructions?: string[];
-}
+// ===== R2 读取 =====
 
-/** 将 HF 原始数据转换为 RecipeSource */
-function transformRecipe(raw: HFRawRecipe): RecipeSource | null {
-  const name = raw.name || raw.dish || "";
-  if (!name) return null;
-
-  return {
-    name,
-    description: (raw.description || "").slice(0, 200),
-    ingredients: Array.isArray(raw.recipeIngredient)
-      ? raw.recipeIngredient
-          .map((i) => (typeof i === "string" ? i : String(i)))
-          .filter(Boolean)
-          .slice(0, 20)
-      : [],
-    steps: Array.isArray(raw.recipeInstructions)
-      ? raw.recipeInstructions
-          .map((s) => (typeof s === "string" ? s : String(s)))
-          .filter(Boolean)
-          .slice(0, 15)
-      : [],
-  };
-}
-
-/** 从 HuggingFace 获取一批菜谱 */
-async function fetchBatchFromHF(offset: number): Promise<RecipeSource[]> {
-  const url = `${HF_API}&offset=${offset}&length=${BATCH_SIZE}`;
-
-  const res = await fetch(url, {
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!res.ok) {
-    console.error(`[Recipe] HF 批次 offset=${offset} 失败: HTTP ${res.status}`);
-    throw new Error(`HuggingFace API 错误: ${res.status}`);
-  }
-
-  const json = (await res.json()) as { rows: { row: HFRawRecipe }[] };
-
-  if (!Array.isArray(json.rows)) {
-    console.warn(`[Recipe] HF 批次 offset=${offset} 返回格式异常: rows 不是数组`);
+/** 从 R2 读取一个分片文件 */
+async function readChunkFromR2(chunkIndex: number): Promise<RecipeSource[]> {
+  const env = await getEnv();
+  if (!env?.RECIPE_DATA) {
+    console.warn("[Recipe] R2 不可用（无 RECIPE_DATA binding）");
     return [];
   }
 
+  const filename = `chunk_${String(chunkIndex).padStart(3, "0")}.json`;
+  console.log(`[Recipe] 从 R2 读取 ${filename}`);
+
+  const obj = await env.RECIPE_DATA.get(filename);
+  if (!obj) {
+    console.error(`[Recipe] R2 文件不存在: ${filename}`);
+    return [];
+  }
+
+  const text = await obj.text();
+  console.log(`[Recipe] R2 读取 ${filename}: ${(text.length / 1024 / 1024).toFixed(1)}MB`);
+
+  const rawArr = JSON.parse(text) as Array<{
+    name: string;
+    description?: string;
+    ingredients?: string[];
+    steps?: string[];
+  }>;
+
   const recipes: RecipeSource[] = [];
-  for (const { row } of json.rows) {
-    const recipe = transformRecipe(row);
-    if (recipe) recipes.push(recipe);
-  }
-
-  console.log(`[Recipe] HF 批次 offset=${offset} 成功: ${recipes.length}/${json.rows.length} 条有效`);
-  return recipes;
-}
-
-/** 从 KV 读取缓存 */
-async function getFromKV(): Promise<RecipeSource[] | null> {
-  try {
-    const env = await getEnv();
-    if (!env?.RECIPE_CACHE) {
-      console.log("[Recipe] KV 不可用（无 RECIPE_CACHE binding）");
-      return null;
-    }
-    const raw = await env.RECIPE_CACHE.get(KV_CACHE_KEY, "text");
-    if (!raw) {
-      console.log("[Recipe] KV 缓存为空");
-      return null;
-    }
-    const parsed = JSON.parse(raw) as CacheEntry;
-    if (Date.now() < parsed.expiresAt) {
-      console.log(`[Recipe] KV 缓存命中: ${parsed.data.length} 条，剩余 ${(parsed.expiresAt - Date.now()) / 1000 | 0}s`);
-      return parsed.data;
-    }
-    console.log(`[Recipe] KV 缓存已过期: 过期 ${((Date.now() - parsed.expiresAt) / 1000 | 0)}s`);
-    return null;
-  } catch (err) {
-    console.warn("[Recipe] KV 读取失败:", err);
-    return null;
-  }
-}
-
-/** 写入 KV 缓存 */
-async function setToKV(data: RecipeSource[]): Promise<void> {
-  try {
-    const env = await getEnv();
-    if (!env?.RECIPE_CACHE) return;
-    const entry: CacheEntry = { data, expiresAt: Date.now() + KV_CACHE_TTL * 1000 };
-    await env.RECIPE_CACHE.put(KV_CACHE_KEY, JSON.stringify(entry), {
-      expirationTtl: KV_CACHE_TTL,
+  for (const raw of rawArr) {
+    if (!raw.name) continue;
+    recipes.push({
+      name: raw.name,
+      description: (raw.description || "").slice(0, 200),
+      ingredients: Array.isArray(raw.ingredients) ? raw.ingredients.slice(0, 20) : [],
+      steps: Array.isArray(raw.steps) ? raw.steps.slice(0, 15) : [],
     });
-  } catch (err) {
-    console.warn("KV 写入失败:", err);
   }
-}
 
-/** 从 HuggingFace 拉取新鲜数据 */
-async function fetchFromHF(): Promise<RecipeSource[]> {
-  const offsets = Array.from({ length: BATCH_COUNT }, () =>
-    Math.floor(Math.random() * (TOTAL_RECIPES - BATCH_SIZE))
-  );
-  // 使用 allSettled：单批失败不影响其他批次
-  const results = await Promise.allSettled(
-    offsets.map((offset) => fetchBatchFromHF(offset))
-  );
-  const recipes: RecipeSource[] = [];
-  let failed = 0;
-  for (const result of results) {
-    if (result.status === "fulfilled") {
-      recipes.push(...result.value);
-    } else {
-      failed++;
-      console.error(`[Recipe] HF 批次失败:`, result.reason);
-    }
-  }
-  console.log(`[Recipe] HF 拉取完成: ${BATCH_COUNT - failed}/${BATCH_COUNT} 批成功, 共 ${recipes.length} 条`);
-  if (recipes.length === 0) {
-    throw new Error("HuggingFace 所有批次均失败");
-  }
+  console.log(`[Recipe] 解析 ${filename}: ${recipes.length} 条有效菜谱`);
   return recipes;
 }
 
-/** 加载菜谱数据（KV 优先 → HuggingFace → 内存缓存降级） */
+/** 从 R2 读取搜索索引 */
+async function readIndexFromR2(): Promise<{ name: string; chunk: number }[]> {
+  // 缓存检查
+  if (indexCache && Date.now() < indexCacheExpiresAt) {
+    return indexCache;
+  }
+
+  const env = await getEnv();
+  if (!env?.RECIPE_DATA) {
+    console.warn("[Recipe] R2 不可用");
+    return [];
+  }
+
+  console.log("[Recipe] 从 R2 读取搜索索引 index.json");
+  const obj = await env.RECIPE_DATA.get("index.json");
+  if (!obj) {
+    console.error("[Recipe] R2 索引文件不存在");
+    return [];
+  }
+
+  const text = await obj.text();
+  indexCache = JSON.parse(text) as { name: string; chunk: number }[];
+  indexCacheExpiresAt = Date.now() + MEMORY_CACHE_TTL;
+  console.log(`[Recipe] 索引加载完成: ${indexCache.length} 条`);
+  return indexCache;
+}
+
+// ===== 核心 API =====
+
+/** 加载菜谱数据（内存缓存 → R2 随机分片） */
 async function loadRecipes(): Promise<RecipeSource[]> {
   // 1. 内存缓存检查
   if (memoryCache && Date.now() < memoryCache.expiresAt) {
-    console.log(`[Recipe] 内存缓存命中: ${memoryCache.data.length} 条，剩余 ${(memoryCache.expiresAt - Date.now()) / 1000 | 0}s`);
+    console.log(`[Recipe] 内存缓存命中: 分片 ${memoryCache.chunkIndex}, ${memoryCache.data.length} 条`);
     return memoryCache.data;
   }
 
-  // 2. 避免并发重复请求
-  if (loadingPromise) {
-    console.log("[Recipe] 已有加载中请求，复用");
-    return loadingPromise;
-  }
+  // 2. 随机选一个分片
+  const chunkIndex = Math.floor(Math.random() * CHUNK_COUNT);
+  console.log(`[Recipe] 随机选择分片: ${chunkIndex}`);
 
-  loadingPromise = (async () => {
-    try {
-      // 3. 尝试 KV 缓存
-      const kvData = await getFromKV();
-      if (kvData && kvData.length > 0) {
-        memoryCache = { data: kvData, expiresAt: Date.now() + MEMORY_CACHE_TTL };
-        return kvData;
-      }
-
-      // 4. KV 未命中，从 HuggingFace 拉取
-      const data = await fetchFromHF();
-      memoryCache = { data, expiresAt: Date.now() + MEMORY_CACHE_TTL };
-      console.log(`菜谱数据已从 HuggingFace 加载: ${data.length} 条`);
-
-      // 5. 写入 KV 缓存
-      await setToKV(data);
-
-      return data;
-    } catch (err) {
-      console.error("[Recipe] 加载失败:", err);
-      // 降级：即使缓存过期也返回，总比空数组好
-      if (memoryCache) {
-        console.log(`[Recipe] 降级使用过期内存缓存: ${memoryCache.data.length} 条，已过期 ${((Date.now() - memoryCache.expiresAt) / 1000 | 0)}s`);
-        return memoryCache.data;
-      }
-      console.error("[Recipe] 无任何缓存可用，返回空数组");
-      return [];
-    } finally {
-      loadingPromise = null;
+  try {
+    const data = await readChunkFromR2(chunkIndex);
+    if (data.length > 0) {
+      memoryCache = { chunkIndex, data, expiresAt: Date.now() + MEMORY_CACHE_TTL };
     }
-  })();
-
-  return loadingPromise;
+    return data;
+  } catch (err) {
+    console.error(`[Recipe] 读取分片 ${chunkIndex} 失败:`, err);
+    // 降级：返回过期缓存
+    if (memoryCache) {
+      console.log(`[Recipe] 降级使用过期内存缓存: ${memoryCache.data.length} 条`);
+      return memoryCache.data;
+    }
+    return [];
+  }
 }
 
-/** 获取所有菜谱 */
+/** 获取所有菜谱（当前分片） */
 export async function getAllRecipes(): Promise<RecipeSource[]> {
   return loadRecipes();
 }
 
-/** 根据菜名搜索（模糊匹配） */
+/** 根据菜名搜索（通过索引 → 定位分片 → 读取数据） */
 export async function searchRecipes(query: string): Promise<RecipeSource[]> {
-  const recipes = await loadRecipes();
   const lowerQuery = query.toLowerCase();
-  return recipes.filter((r) => r.name.toLowerCase().includes(lowerQuery));
+
+  // 1. 读取索引，找到匹配的菜名和分片
+  const index = await readIndexFromR2();
+  if (index.length === 0) {
+    // 索引不可用，降级到当前分片搜索
+    const recipes = await loadRecipes();
+    return recipes.filter((r) => r.name.toLowerCase().includes(lowerQuery));
+  }
+
+  const matches = index.filter((item) => item.name.toLowerCase().includes(lowerQuery));
+  if (matches.length === 0) return [];
+
+  console.log(`[Recipe] 搜索 "${query}": 索引匹配 ${matches.length} 条`);
+
+  // 2. 获取需要读取的分片（去重）
+  const neededChunks = [...new Set(matches.map((m) => m.chunk))];
+  const matchNames = new Set(matches.map((m) => m.name));
+
+  // 3. 并行读取分片
+  const chunkResults = await Promise.allSettled(
+    neededChunks.map((ci) => {
+      // 如果刚好是缓存的分片，直接用
+      if (memoryCache && memoryCache.chunkIndex === ci) {
+        return Promise.resolve(memoryCache.data);
+      }
+      return readChunkFromR2(ci);
+    })
+  );
+
+  // 4. 合并结果
+  const results: RecipeSource[] = [];
+  for (const result of chunkResults) {
+    if (result.status === "fulfilled") {
+      for (const recipe of result.value) {
+        if (matchNames.has(recipe.name)) {
+          results.push(recipe);
+        }
+      }
+    }
+  }
+
+  console.log(`[Recipe] 搜索 "${query}": 返回 ${results.length} 条结果`);
+  return results;
 }
 
 /** 根据菜名精确查找 */
 export async function findRecipeByName(
   name: string
 ): Promise<RecipeSource | null> {
+  // 1. 通过索引定位分片
+  const index = await readIndexFromR2();
+  if (index.length > 0) {
+    // 精确匹配
+    const exact = index.find((item) => item.name === name);
+    // 模糊匹配
+    const fuzzy = !exact
+      ? index.find((item) => item.name.includes(name) || name.includes(item.name))
+      : null;
+    const match = exact || fuzzy;
+
+    if (match) {
+      let data: RecipeSource[];
+      if (memoryCache && memoryCache.chunkIndex === match.chunk) {
+        data = memoryCache.data;
+      } else {
+        data = await readChunkFromR2(match.chunk);
+      }
+      const recipe = data.find((r) => r.name === match.name);
+      if (recipe) return recipe;
+    }
+    return null;
+  }
+
+  // 2. 索引不可用，降级到当前分片
   const recipes = await loadRecipes();
-  const exact = recipes.find((r) => r.name === name);
-  if (exact) return exact;
-  const fuzzy = recipes.find(
-    (r) => r.name.includes(name) || name.includes(r.name)
-  );
-  return fuzzy ?? null;
+  const exactMatch = recipes.find((r) => r.name === name);
+  if (exactMatch) return exactMatch;
+  return recipes.find((r) => r.name.includes(name) || name.includes(r.name)) ?? null;
 }
 
 /** 随机获取一道菜（排除指定菜名） */
@@ -230,8 +214,7 @@ export async function getRandomRecipe(
   const recipes = await loadRecipes();
   const filtered = recipes.filter((r) => !excludeNames.includes(r.name));
   if (filtered.length === 0) return null;
-  const index = Math.floor(Math.random() * filtered.length);
-  return filtered[index];
+  return filtered[Math.floor(Math.random() * filtered.length)];
 }
 
 /** 随机获取多道菜 */

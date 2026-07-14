@@ -6,6 +6,7 @@
 
 interface CloudflareEnv {
   RECIPE_CACHE: import("@cloudflare/workers-types").KVNamespace;
+  RECIPE_DATA: import("@cloudflare/workers-types").R2Bucket;
   DB: import("@cloudflare/workers-types").D1Database;
 }
 
@@ -235,6 +236,12 @@ class LocalKVStore {
     this._store.delete(key);
   }
 }
+
+class LocalR2Bucket {
+  async get(_key: string) {
+    return null;
+  }
+}
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ============================================================
@@ -250,6 +257,7 @@ async function initLocalEnv(): Promise<CloudflareEnv> {
   localEnv = {
     DB: new LocalD1Database(db) as any,
     RECIPE_CACHE: new LocalKVStore() as any,
+    RECIPE_DATA: new LocalR2Bucket() as any,
   };
   return localEnv;
 }

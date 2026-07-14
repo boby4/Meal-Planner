@@ -13,6 +13,11 @@ binding = "ASSETS"
 binding = "RECIPE_CACHE"
 id = "ac198a21393745378c25c28055e6a8d8"
 
+# R2 存储（菜谱数据）
+[[r2_buckets]]
+binding = "RECIPE_DATA"
+bucket_name = "xiachufangdata"
+
 # D1 数据库（收藏/历史/菜单/清单）
 [[d1_databases]]
 binding = "DB"
