@@ -28,6 +28,7 @@ interface MealActions {
   setRecommendations: (recipes: RecommendedRecipe[]) => void;
   setCurrentRecipe: (recipe: RecipeDetail | null) => void;
   setFilters: (filters: Partial<FilterOptions>) => void;
+  resetFilters: () => void;
   addToHistory: (names: string[]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -70,6 +71,8 @@ export const useMealStore = create<MealState & MealActions>((set) => ({
     set((state) => ({
       filters: { ...state.filters, ...filters },
     })),
+
+  resetFilters: () => set({ filters: DEFAULT_FILTERS }),
 
   addToHistory: (names) =>
     set((state) => ({

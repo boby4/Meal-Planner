@@ -71,6 +71,7 @@ export default function HomePage() {
   const handleRandom = async () => {
     setIsRandomLoading(true);
     try {
+      useMealStore.getState().resetFilters();
       await randomRecommend();
       router.push("/recommend");
     } finally {
@@ -79,11 +80,15 @@ export default function HomePage() {
   };
 
   const handleAISubmit = async () => {
+    // AI 推荐前只清除食材字段（FilterPanel 已设置了 AI 条件）
+    useMealStore.getState().setFilters({ ingredients: [] });
     await aiRecommend();
     router.push("/recommend");
   };
 
   const handleIngredientSubmit = async (ingredients: string[]) => {
+    // 食材推荐前重置其他筛选条件，只保留 ingredients
+    useMealStore.getState().resetFilters();
     useMealStore.getState().setFilters({ ingredients });
     await ingredientRecommend(ingredients);
     router.push("/recommend");
