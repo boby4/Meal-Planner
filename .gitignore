@@ -41,6 +41,4 @@ yarn-error.log*
 *.pem
 
 # qoder / editor
-AGENTS.md
-CLAUDE.md
 .qoder/
