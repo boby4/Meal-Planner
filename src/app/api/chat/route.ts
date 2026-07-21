@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callDeepSeek } from "@/lib/deepseek";
 import { handleAPIError, validationError } from "@/lib/error-handler";
+import { rateLimit } from "@/lib/rate-limit";
 
 /** POST /api/chat - DeepSeek 代理 */
 export async function POST(request: NextRequest) {
+  // 限流检查
+  const { allowed, response } = rateLimit(request, "ai");
+  if (!allowed) return response!;
+
   try {
     const body = await request.json();
     const { messages, temperature, maxTokens } = body;

@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 // ===== 限流配置 =====
-interface RateLimitConfig {
+export interface RateLimitConfig {
   windowMs: number; // 时间窗口（毫秒）
   maxRequests: number; // 最大请求数
 }
 
-const RATE_LIMITS: Record<string, RateLimitConfig> = {
+export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // 普通 API
   default: { windowMs: 60 * 1000, maxRequests: 30 },
   // AI 相关 API（更严格）
@@ -16,7 +16,7 @@ const RATE_LIMITS: Record<string, RateLimitConfig> = {
   search: { windowMs: 60 * 1000, maxRequests: 20 },
 };
 
-// ===== 内存存储（Edge Runtime 兼容）=====
+// ===== 内存存储 =====
 const requestCounts = new Map<string, { count: number; resetTime: number }>();
 
 /** 惰性清理过期记录 */
@@ -30,7 +30,7 @@ function cleanupExpiredRecords() {
 }
 
 /** 获取客户端 IP */
-function getClientIP(request: NextRequest): string {
+export function getClientIP(request: NextRequest): string {
   // 优先从 Cloudflare 头获取
   const cfIP = request.headers.get("cf-connecting-ip");
   if (cfIP) return cfIP;
@@ -48,19 +48,14 @@ function getClientIP(request: NextRequest): string {
   return "unknown";
 }
 
-/** 判断路由类型 */
-function getRouteType(pathname: string): string {
-  if (pathname.startsWith("/api/chat")) return "ai";
-  if (pathname.startsWith("/api/recipe")) return "ai"; // recipe 也可能调用 DeepSeek
-  if (pathname.startsWith("/api/search")) return "search";
-  return "default";
-}
-
 /** 检查速率限制 */
-function checkRateLimit(
+export function checkRateLimit(
   key: string,
   config: RateLimitConfig
 ): { allowed: boolean; remaining: number; retryAfter: number } {
+  // 惰性清理
+  cleanupExpiredRecords();
+
   const now = Date.now();
   const record = requestCounts.get(key);
 
@@ -92,26 +87,52 @@ function checkRateLimit(
   };
 }
 
-/** Proxy 主函数 */
-export function proxy(request: NextRequest) {
-  const pathname = request.nextUrl.pathname;
+/** 创建限流响应 */
+export function createRateLimitResponse(
+  retryAfter: number,
+  config: RateLimitConfig
+): NextResponse {
+  return NextResponse.json(
+    {
+      error: "请求过于频繁，请稍后再试",
+      retryAfter,
+    },
+    {
+      status: 429,
+      headers: {
+        "Retry-After": String(retryAfter),
+        "X-RateLimit-Limit": String(config.maxRequests),
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": String(
+          Math.ceil(Date.now() / 1000) + retryAfter
+        ),
+      },
+    }
+  );
+}
 
-  // 只处理 API 路由
-  if (!pathname.startsWith("/api/")) {
-    return NextResponse.next();
-  }
+/** 添加限流头到响应 */
+export function addRateLimitHeaders(
+  response: NextResponse,
+  remaining: number,
+  config: RateLimitConfig
+): NextResponse {
+  response.headers.set("X-RateLimit-Limit", String(config.maxRequests));
+  response.headers.set("X-RateLimit-Remaining", String(remaining));
+  response.headers.set(
+    "X-RateLimit-Reset",
+    String(Math.ceil(Date.now() / 1000) + config.windowMs / 1000)
+  );
+  return response;
+}
 
-  // 跳过认证相关的 API（避免影响登录）
-  if (pathname.startsWith("/api/auth")) {
-    return NextResponse.next();
-  }
-
-  // 惰性清理过期记录（每次请求时检查）
-  cleanupExpiredRecords();
-
-  const clientIP = getClientIP(request);
-  const routeType = getRouteType(pathname);
+/** 限流中间件（在 API 路由中调用） */
+export function rateLimit(
+  request: NextRequest,
+  routeType: string = "default"
+): { allowed: boolean; response?: NextResponse } {
   const config = RATE_LIMITS[routeType] || RATE_LIMITS.default;
+  const clientIP = getClientIP(request);
   const rateLimitKey = `${clientIP}:${routeType}`;
 
   const { allowed, remaining, retryAfter } = checkRateLimit(
@@ -123,42 +144,11 @@ export function proxy(request: NextRequest) {
     console.warn(
       `[RateLimit] IP ${clientIP} 超出 ${routeType} 限制，需等待 ${retryAfter}s`
     );
-
-    return NextResponse.json(
-      {
-        error: "请求过于频繁，请稍后再试",
-        retryAfter,
-      },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": String(retryAfter),
-          "X-RateLimit-Limit": String(config.maxRequests),
-          "X-RateLimit-Remaining": "0",
-          "X-RateLimit-Reset": String(
-            Math.ceil(Date.now() / 1000) + retryAfter
-          ),
-        },
-      }
-    );
+    return {
+      allowed: false,
+      response: createRateLimitResponse(retryAfter, config),
+    };
   }
 
-  // 正常请求，添加速率限制头
-  const response = NextResponse.next();
-  response.headers.set("X-RateLimit-Limit", String(config.maxRequests));
-  response.headers.set("X-RateLimit-Remaining", String(remaining));
-  response.headers.set(
-    "X-RateLimit-Reset",
-    String(Math.ceil(Date.now() / 1000) + config.windowMs / 1000)
-  );
-
-  return response;
+  return { allowed: true };
 }
-
-/** Middleware 配置 */
-export const config = {
-  matcher: [
-    // 匹配所有 API 路由
-    "/api/:path*",
-  ],
-};
