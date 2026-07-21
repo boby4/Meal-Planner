@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/cloudflare";
 import { requireAuth, AuthRequiredError } from "@/lib/auth";
+import { handleAPIError, validationError, unauthorizedError, notFoundError } from "@/lib/error-handler";
 
 /** GET /api/favorites */
 export async function GET(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
 
@@ -24,10 +27,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ favorites });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("GET /api/favorites 错误:", error);
-    return NextResponse.json({ error: "获取收藏失败" }, { status: 500 });
+    return handleAPIError(error, "/api/favorites GET");
   }
 }
 
@@ -35,11 +37,20 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
     const { recipe_name, recipe_data } = await request.json();
-    if (!recipe_name) return NextResponse.json({ error: "缺少 recipe_name" }, { status: 400 });
+
+    if (!recipe_name) {
+      throw validationError("缺少 recipe_name");
+    }
+
+    if (typeof recipe_name !== "string" || recipe_name.length > 200) {
+      throw validationError("recipe_name 格式错误");
+    }
 
     await env.DB.prepare(
       "INSERT OR REPLACE INTO favorites (user_id, device_id, recipe_name, recipe_data) VALUES (?, '', ?, ?)"
@@ -48,10 +59,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("POST /api/favorites 错误:", error);
-    return NextResponse.json({ error: "收藏失败" }, { status: 500 });
+    return handleAPIError(error, "/api/favorites POST");
   }
 }
 
@@ -59,24 +69,28 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
 
     const { searchParams } = new URL(request.url);
     const name = searchParams.get("name");
-    if (!name) return NextResponse.json({ error: "缺少 name 参数" }, { status: 400 });
 
-    await env.DB.prepare(
+    if (!name) {
+      throw validationError("缺少 name 参数");
+    }
+
+    const result = await env.DB.prepare(
       `DELETE FROM favorites WHERE user_id = ? AND recipe_name = ?`
     ).bind(userId, name).run();
 
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("DELETE /api/favorites 错误:", error);
-    return NextResponse.json({ error: "取消收藏失败" }, { status: 500 });
+    return handleAPIError(error, "/api/favorites DELETE");
   }
 }

@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/cloudflare";
 import { requireAuth, AuthRequiredError } from "@/lib/auth";
+import { handleAPIError, validationError, unauthorizedError } from "@/lib/error-handler";
 
 /** GET /api/shopping */
 export async function GET(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
 
@@ -25,10 +28,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ items });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("GET /api/shopping 错误:", error);
-    return NextResponse.json({ error: "获取清单失败" }, { status: 500 });
+    return handleAPIError(error, "/api/shopping GET");
   }
 }
 
@@ -36,11 +38,24 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
     const { item_name, amount, related_recipe } = await request.json();
-    if (!item_name) return NextResponse.json({ error: "缺少 item_name" }, { status: 400 });
+
+    if (!item_name) {
+      throw validationError("缺少 item_name");
+    }
+
+    if (typeof item_name !== "string" || item_name.length > 200) {
+      throw validationError("item_name 格式错误");
+    }
+
+    if (amount && (typeof amount !== "string" || amount.length > 100)) {
+      throw validationError("amount 格式错误");
+    }
 
     await env.DB.prepare(
       "INSERT INTO shopping_list (user_id, device_id, item_name, amount, related_recipe) VALUES (?, '', ?, ?, ?)"
@@ -49,10 +64,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("POST /api/shopping 错误:", error);
-    return NextResponse.json({ error: "添加失败" }, { status: 500 });
+    return handleAPIError(error, "/api/shopping POST");
   }
 }
 
@@ -60,22 +74,32 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
     const { id, checked } = await request.json();
 
+    if (!id) {
+      throw validationError("缺少 id");
+    }
+
+    const numId = Number(id);
+    if (isNaN(numId) || numId < 1) {
+      throw validationError("id 必须是正整数");
+    }
+
     await env.DB.prepare(
       `UPDATE shopping_list SET checked = ? WHERE id = ? AND user_id = ?`
-    ).bind(checked ? 1 : 0, id, userId).run();
+    ).bind(checked ? 1 : 0, numId, userId).run();
 
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("PATCH /api/shopping 错误:", error);
-    return NextResponse.json({ error: "更新失败" }, { status: 500 });
+    return handleAPIError(error, "/api/shopping PATCH");
   }
 }
 
@@ -83,7 +107,9 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
     const { searchParams } = new URL(request.url);
@@ -91,9 +117,14 @@ export async function DELETE(request: NextRequest) {
     const clearChecked = searchParams.get("clear");
 
     if (id) {
+      const numId = Number(id);
+      if (isNaN(numId) || numId < 1) {
+        throw validationError("id 必须是正整数");
+      }
+
       await env.DB.prepare(
         `DELETE FROM shopping_list WHERE id = ? AND user_id = ?`
-      ).bind(Number(id), userId).run();
+      ).bind(numId, userId).run();
     } else if (clearChecked === "true") {
       await env.DB.prepare(
         `DELETE FROM shopping_list WHERE checked = 1 AND user_id = ?`
@@ -105,9 +136,8 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("DELETE /api/shopping 错误:", error);
-    return NextResponse.json({ error: "删除失败" }, { status: 500 });
+    return handleAPIError(error, "/api/shopping DELETE");
   }
 }

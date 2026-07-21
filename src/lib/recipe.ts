@@ -1,11 +1,13 @@
 import type { RecipeSource, RecipeDetail, RecipeIngredient } from "./types";
 import { getEnv } from "./cloudflare";
+import { kvCache, generateCacheKey } from "./cache";
 
 // ===== 常量 =====
 const CHUNK_COUNT = 21; // chunk_000.json ~ chunk_020.json
 const ESTIMATED_CHUNK_SIZE = 55 * 1024 * 1024; // 约 55MB
 const READ_SIZE = 512 * 1024; // 每次读取 512KB（足够解析 ~800 条菜谱）
 const MEMORY_CACHE_TTL = 10 * 60 * 1000; // 10 分钟
+const SEARCH_CACHE_TTL = 30 * 60 * 1000; // 搜索缓存 30 分钟
 const INDEX_READ_SIZE = 2 * 1024 * 1024; // 索引每次读 2MB
 
 interface CacheEntry {
@@ -16,6 +18,9 @@ interface CacheEntry {
 // 内存缓存
 let memoryCache: CacheEntry | null = null;
 let loadingPromise: Promise<RecipeSource[]> | null = null;
+
+// 搜索结果缓存（内存 L1）
+const searchCache = new Map<string, CacheEntry>();
 
 // ===== R2 范围读取 =====
 
@@ -149,6 +154,19 @@ function findMatchingBrace(text: string, start: number): number {
 
 // ===== 搜索相关 =====
 
+/** 清理过期的搜索缓存 */
+function cleanSearchCache() {
+  const now = Date.now();
+  for (const [key, entry] of searchCache.entries()) {
+    if (now > entry.expiresAt) {
+      searchCache.delete(key);
+    }
+  }
+}
+
+// 定期清理搜索缓存（每 10 分钟）
+setInterval(cleanSearchCache, 10 * 60 * 1000);
+
 /** 从 R2 索引文件的特定范围读取条目 */
 async function readIndexRange(
   offset: number,
@@ -187,11 +205,33 @@ async function readIndexRange(
   return entries;
 }
 
-/** 搜索菜谱（通过索引范围读取） */
+/** 搜索菜谱（通过索引范围读取，带缓存） */
 export async function searchRecipes(
   query: string
 ): Promise<RecipeSource[]> {
   const lowerQuery = query.toLowerCase();
+  const cacheKey = `search:${lowerQuery}`;
+  const kvKey = generateCacheKey("search", lowerQuery);
+
+  // L1: 检查内存缓存
+  const cached = searchCache.get(cacheKey);
+  if (cached && Date.now() < cached.expiresAt) {
+    console.log(`[Recipe] 搜索内存缓存命中: "${query}"，${cached.data.length} 条`);
+    return cached.data;
+  }
+
+  // L2: 检查 KV 缓存
+  const kvCached = await kvCache.get<RecipeSource[]>(kvKey);
+  if (kvCached) {
+    console.log(`[Recipe] 搜索 KV 缓存命中: "${query}"，${kvCached.length} 条`);
+    // 回填到内存缓存
+    searchCache.set(cacheKey, {
+      data: kvCached,
+      expiresAt: Date.now() + SEARCH_CACHE_TTL,
+    });
+    return kvCached;
+  }
+
   const env = await getEnv();
 
   // 获取索引文件大小
@@ -261,6 +301,21 @@ export async function searchRecipes(
   }
 
   console.log(`[Recipe] 搜索 "${query}": 返回 ${results.length} 条`);
+
+  // 缓存搜索结果（内存 L1 + KV L2）
+  if (results.length > 0) {
+    // 写入内存缓存
+    searchCache.set(cacheKey, {
+      data: results,
+      expiresAt: Date.now() + SEARCH_CACHE_TTL,
+    });
+
+    // 异步写入 KV 缓存（不阻塞返回）
+    kvCache.set(kvKey, results, SEARCH_CACHE_TTL / 1000).catch((err) => {
+      console.error("[Recipe] KV 缓存写入失败:", err);
+    });
+  }
+
   return results;
 }
 

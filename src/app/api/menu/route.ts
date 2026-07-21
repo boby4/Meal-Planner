@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/cloudflare";
 import { requireAuth, AuthRequiredError } from "@/lib/auth";
+import { handleAPIError, validationError, unauthorizedError } from "@/lib/error-handler";
 
 function getWeekStart(): string {
   const now = new Date();
@@ -15,7 +16,9 @@ function getWeekStart(): string {
 export async function GET(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
     const weekStart = getWeekStart();
@@ -35,10 +38,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ menu, week_start: weekStart });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("GET /api/menu 错误:", error);
-    return NextResponse.json({ error: "获取菜单失败" }, { status: 500 });
+    return handleAPIError(error, "/api/menu GET");
   }
 }
 
@@ -46,12 +48,29 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
     const { day_of_week, meal_type, recipe_name, recipe_data } = await request.json();
+
+    // 验证必填字段
     if (day_of_week === undefined || !meal_type || !recipe_name) {
-      return NextResponse.json({ error: "缺少必填字段" }, { status: 400 });
+      throw validationError("缺少必填字段：day_of_week, meal_type, recipe_name");
+    }
+
+    // 验证字段类型
+    if (typeof day_of_week !== "number" || day_of_week < 0 || day_of_week > 6) {
+      throw validationError("day_of_week 必须是 0-6 之间的数字");
+    }
+
+    if (!["breakfast", "lunch", "dinner", "snack"].includes(meal_type)) {
+      throw validationError("meal_type 必须是 breakfast、lunch、dinner 或 snack");
+    }
+
+    if (typeof recipe_name !== "string" || recipe_name.length > 200) {
+      throw validationError("recipe_name 格式错误");
     }
 
     const weekStart = getWeekStart();
@@ -67,10 +86,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("POST /api/menu 错误:", error);
-    return NextResponse.json({ error: "添加菜单失败" }, { status: 500 });
+    return handleAPIError(error, "/api/menu POST");
   }
 }
 
@@ -78,24 +96,30 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const env = await getEnv();
-    if (!env?.DB) return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    if (!env?.DB) {
+      return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+    }
 
     const { userId } = await requireAuth(request);
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
 
     if (id) {
+      const numId = Number(id);
+      if (isNaN(numId) || numId < 1) {
+        throw validationError("id 参数必须是正整数");
+      }
+
       await env.DB.prepare(
         `DELETE FROM weekly_menu WHERE id = ? AND user_id = ?`
-      ).bind(Number(id), userId).run();
+      ).bind(numId, userId).run();
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof AuthRequiredError) {
-      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+      throw unauthorizedError();
     }
-    console.error("DELETE /api/menu 错误:", error);
-    return NextResponse.json({ error: "删除失败" }, { status: 500 });
+    return handleAPIError(error, "/api/menu DELETE");
   }
 }

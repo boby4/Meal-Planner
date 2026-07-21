@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { findRecipeByName, toRecipeDetail, getRandomRecipe, getRandomRecipes } from "@/lib/recipe";
 import { callDeepSeek, parseDeepSeekJSON } from "@/lib/deepseek";
 import { buildRecipeDetailPrompt } from "@/lib/prompts";
+import { handleAPIError, validationError } from "@/lib/error-handler";
 import type { RecipeDetail } from "@/lib/types";
 
 /** GET /api/recipe?name=xxx - 查询菜谱详情 */
@@ -11,11 +12,16 @@ export async function GET(request: NextRequest) {
     const name = searchParams.get("name");
 
     if (!name) {
-      return NextResponse.json({ error: "缺少 name 参数" }, { status: 400 });
+      throw validationError("缺少 name 参数");
+    }
+
+    const decodedName = decodeURIComponent(name);
+    if (decodedName.length > 100) {
+      throw validationError("菜谱名称过长");
     }
 
     // 优先从缓存数据查找
-    const localRecipe = await findRecipeByName(decodeURIComponent(name));
+    const localRecipe = await findRecipeByName(decodedName);
 
     if (localRecipe) {
       const detail = toRecipeDetail(localRecipe);
@@ -23,15 +29,13 @@ export async function GET(request: NextRequest) {
     }
 
     // 本地找不到，调用 DeepSeek 生成
-    const messages = buildRecipeDetailPrompt(name);
+    const messages = buildRecipeDetailPrompt(decodedName);
     const raw = await callDeepSeek({ messages, temperature: 0.7, maxTokens: 2048 });
     const generated = parseDeepSeekJSON<RecipeDetail>(raw);
 
     return NextResponse.json({ recipe: generated, source: "ai" });
   } catch (error) {
-    console.error("API /api/recipe 错误:", error);
-    const message = error instanceof Error ? error.message : "服务内部错误";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAPIError(error, "/api/recipe GET");
   }
 }
 
@@ -40,6 +44,19 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { count = 1, excludeNames = [] } = body;
+
+    // 验证参数
+    if (typeof count !== "number" || count < 1 || count > 10) {
+      throw validationError("count 必须是 1-10 之间的数字");
+    }
+
+    if (!Array.isArray(excludeNames)) {
+      throw validationError("excludeNames 必须是数组");
+    }
+
+    if (excludeNames.length > 100) {
+      throw validationError("excludeNames 数组过长");
+    }
 
     if (count === 1) {
       const recipe = await getRandomRecipe(excludeNames);
@@ -61,8 +78,6 @@ export async function POST(request: NextRequest) {
       })),
     });
   } catch (error) {
-    console.error("API /api/recipe POST 错误:", error);
-    const message = error instanceof Error ? error.message : "服务内部错误";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return handleAPIError(error, "/api/recipe POST");
   }
 }
