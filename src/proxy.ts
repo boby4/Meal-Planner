@@ -16,18 +16,18 @@ const RATE_LIMITS: Record<string, RateLimitConfig> = {
   search: { windowMs: 60 * 1000, maxRequests: 20 },
 };
 
-// ===== 内存存储（生产环境应使用 KV）=====
+// ===== 内存存储（Edge Runtime 兼容）=====
 const requestCounts = new Map<string, { count: number; resetTime: number }>();
 
-// 定期清理过期记录（每 5 分钟）
-setInterval(() => {
+/** 惰性清理过期记录 */
+function cleanupExpiredRecords() {
   const now = Date.now();
   for (const [key, value] of requestCounts.entries()) {
     if (now > value.resetTime) {
       requestCounts.delete(key);
     }
   }
-}, 5 * 60 * 1000);
+}
 
 /** 获取客户端 IP */
 function getClientIP(request: NextRequest): string {
@@ -105,6 +105,9 @@ export function proxy(request: NextRequest) {
   if (pathname.startsWith("/api/auth")) {
     return NextResponse.next();
   }
+
+  // 惰性清理过期记录（每次请求时检查）
+  cleanupExpiredRecords();
 
   const clientIP = getClientIP(request);
   const routeType = getRouteType(pathname);
