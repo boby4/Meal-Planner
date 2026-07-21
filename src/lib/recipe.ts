@@ -154,7 +154,7 @@ function findMatchingBrace(text: string, start: number): number {
 
 // ===== 搜索相关 =====
 
-/** 清理过期的搜索缓存 */
+/** 清理过期的搜索缓存（惰性清理） */
 function cleanSearchCache() {
   const now = Date.now();
   for (const [key, entry] of searchCache.entries()) {
@@ -163,9 +163,6 @@ function cleanSearchCache() {
     }
   }
 }
-
-// 定期清理搜索缓存（每 10 分钟）
-setInterval(cleanSearchCache, 10 * 60 * 1000);
 
 /** 从 R2 索引文件的特定范围读取条目 */
 async function readIndexRange(
@@ -212,6 +209,9 @@ export async function searchRecipes(
   const lowerQuery = query.toLowerCase();
   const cacheKey = `search:${lowerQuery}`;
   const kvKey = generateCacheKey("search", lowerQuery);
+
+  // 惰性清理过期缓存
+  cleanSearchCache();
 
   // L1: 检查内存缓存
   const cached = searchCache.get(cacheKey);
@@ -399,24 +399,36 @@ export async function getAllRecipes(): Promise<RecipeSource[]> {
 export async function findRecipeByName(
   name: string
 ): Promise<RecipeSource | null> {
-  // 先查缓存
-  if (memoryCache) {
-    const found = memoryCache.data.find(
-      (r) =>
-        r.name === name ||
-        r.name.includes(name) ||
-        name.includes(r.name)
-    );
-    if (found) return found;
-  }
+  try {
+    // 先查缓存
+    if (memoryCache) {
+      const found = memoryCache.data.find(
+        (r) =>
+          r.name === name ||
+          r.name.includes(name) ||
+          name.includes(r.name)
+      );
+      if (found) return found;
+    }
 
-  // 通过搜索获取
-  const results = await searchRecipes(name);
-  if (results.length > 0) {
-    const exact = results.find((r) => r.name === name);
-    return exact || results[0];
+    // 通过搜索获取（带超时保护）
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("搜索超时")), 15000);
+    });
+
+    const searchPromise = searchRecipes(name);
+    const results = await Promise.race([searchPromise, timeoutPromise]);
+
+    if (results.length > 0) {
+      const exact = results.find((r) => r.name === name);
+      return exact || results[0];
+    }
+    return null;
+  } catch (error) {
+    console.error("[Recipe] findRecipeByName 失败:", error);
+    // 搜索失败时返回 null，让调用者决定是否使用 AI 生成
+    return null;
   }
-  return null;
 }
 
 /** 随机获取一道菜 */

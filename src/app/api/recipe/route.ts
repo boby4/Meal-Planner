@@ -28,10 +28,20 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ recipe: detail, source: "local" });
     }
 
-    // 本地找不到，调用 DeepSeek 生成
+    // 本地找不到，调用 DeepSeek 生成（带超时保护）
     const messages = buildRecipeDetailPrompt(decodedName);
-    const raw = await callDeepSeek({ messages, temperature: 0.7, maxTokens: 2048 });
-    const generated = parseDeepSeekJSON<RecipeDetail>(raw);
+
+    // 设置整体超时（25秒）
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("请求超时")), 25000);
+    });
+
+    const aiPromise = (async () => {
+      const raw = await callDeepSeek({ messages, temperature: 0.7, maxTokens: 2048 });
+      return parseDeepSeekJSON<RecipeDetail>(raw);
+    })();
+
+    const generated = await Promise.race([aiPromise, timeoutPromise]);
 
     return NextResponse.json({ recipe: generated, source: "ai" });
   } catch (error) {
