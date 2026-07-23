@@ -44,6 +44,9 @@ const DEFAULT_FILTERS: FilterOptions = {
   isDiet: false,
 };
 
+/** 历史记录最大数量（避免 excludeNames 过长） */
+const MAX_HISTORY_SIZE = 30;
+
 const initialState: MealState = {
   mode: null,
   recommendations: [],
@@ -60,10 +63,13 @@ export const useMealStore = create<MealState & MealActions>((set) => ({
   setMode: (mode) => set({ mode }),
 
   setRecommendations: (recipes) =>
-    set((state) => ({
-      recommendations: recipes,
-      history: [...state.history, ...recipes.map((r) => r.name)],
-    })),
+    set((state) => {
+      const newHistory = [...state.history, ...recipes.map((r) => r.name)];
+      return {
+        recommendations: recipes,
+        history: newHistory.slice(-MAX_HISTORY_SIZE),
+      };
+    }),
 
   setCurrentRecipe: (recipe) => set({ currentRecipe: recipe }),
 
@@ -75,9 +81,10 @@ export const useMealStore = create<MealState & MealActions>((set) => ({
   resetFilters: () => set({ filters: DEFAULT_FILTERS }),
 
   addToHistory: (names) =>
-    set((state) => ({
-      history: [...state.history, ...names],
-    })),
+    set((state) => {
+      const newHistory = [...state.history, ...names];
+      return { history: newHistory.slice(-MAX_HISTORY_SIZE) };
+    }),
 
   setLoading: (loading) => set({ isLoading: loading }),
 
