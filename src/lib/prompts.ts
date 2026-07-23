@@ -6,9 +6,9 @@ const SYSTEM_JSON = `你是一个专业的中国厨师和美食推荐官。
 只返回 JSON 对象。
 
 推荐菜品时请注意：
-1. 推荐要有新意，避免总是推荐常见的家常菜（如番茄炒蛋、青椒肉丝等）
-2. 尝试推荐不同菜系的菜品（川菜、粤菜、湘菜、鲁菜、江浙菜、东北菜等）
-3. 推荐一些有特色但做法不复杂的创意菜
+1. 推荐的菜品要合理、实用，是人们真正会做的家常菜
+2. 可以推荐不同菜系的菜品（川菜、粤菜、湘菜、鲁菜、江浙菜、东北菜等）
+3. 推荐的菜品要符合食材的正常搭配，不要推荐奇怪的组合
 4. 考虑时令食材和当下流行的美食趋势`;
 
 /** AI 条件推荐 Prompt */
@@ -18,7 +18,7 @@ export function buildAIRecommendPrompt(
 ): ChatMessage[] {
   const parts: string[] = [];
 
-  parts.push(`请根据以下条件推荐3道有新意的菜谱：`);
+  parts.push(`请根据以下条件推荐3道家常菜谱：`);
   parts.push(`- 用餐人数：${filters.people}人`);
 
   if (filters.taste.length > 0) {
@@ -64,10 +64,11 @@ export function buildIngredientPrompt(
   ingredients: string[],
   excludeNames: string[]
 ): ChatMessage[] {
-  let prompt = `我家里有以下食材：\n${ingredients.join("\n")}\n\n请根据这些食材推荐3道有创意的菜品。要求：
+  let prompt = `我家里有以下食材：\n${ingredients.join("\n")}\n\n请根据这些食材推荐3道家常菜。要求：
 - 只能使用我提供的食材（允许额外使用常见调味料如盐、糖、酱油、醋、油等）
-- 推荐要有新意，尝试不同的烹饪方式（煎、炒、蒸、烤、拌等）
-- 可以推荐不同菜系的做法，避免总是推荐最常见的家常做法`;
+- 推荐的菜要合理、实用，是人们真正会做的菜
+- 不要推荐奇怪的食材组合，要符合正常的烹饪逻辑
+- 可以推荐不同做法（煎、炒、蒸、烤、拌等），但要确保食材搭配合理`;
 
   if (excludeNames.length > 0) {
     prompt += `\n\n不要推荐以下菜品：\n${excludeNames.join("\n")}`;
