@@ -13,7 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 
-const MAX_RECENT = 8;
+const MAX_RECENT = 14;
 
 interface IngredientInputProps {
   onSubmit: (ingredients: string[]) => void;
