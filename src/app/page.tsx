@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -66,16 +66,17 @@ export default function HomePage() {
   // 热门搜索
   const HOT_SEARCHES = ["红烧肉", "番茄炒蛋", "可乐鸡翅", "酸菜鱼", "宫保鸡丁", "麻婆豆腐"];
 
-  // 根据时间的问候语
-  const greeting = useMemo(() => {
+  // 问候语（客户端计算，避免 hydration mismatch）
+  const [greeting, setGreeting] = useState({ text: "你好", sub: "今天吃什么？", icon: "🍳" });
+  useEffect(() => {
     const hour = new Date().getHours();
-    if (hour < 6) return { text: "夜深了", sub: "来点夜宵？", icon: "🌙" };
-    if (hour < 9) return { text: "早上好", sub: "早餐吃什么？", icon: "🌅" };
-    if (hour < 11) return { text: "上午好", sub: "想好吃什么了吗？", icon: "☀️" };
-    if (hour < 13) return { text: "中午好", sub: "午餐时间到！", icon: "🌞" };
-    if (hour < 17) return { text: "下午好", sub: "来份下午茶？", icon: "🌤️" };
-    if (hour < 19) return { text: "傍晚好", sub: "晚餐吃什么？", icon: "🌆" };
-    return { text: "晚上好", sub: "来份夜宵？", icon: "🌙" };
+    if (hour < 6) setGreeting({ text: "夜深了", sub: "来点夜宵？", icon: "🌙" });
+    else if (hour < 9) setGreeting({ text: "早上好", sub: "早餐吃什么？", icon: "🌅" });
+    else if (hour < 11) setGreeting({ text: "上午好", sub: "想好吃什么了吗？", icon: "☀️" });
+    else if (hour < 13) setGreeting({ text: "中午好", sub: "午餐时间到！", icon: "🌞" });
+    else if (hour < 17) setGreeting({ text: "下午好", sub: "来份下午茶？", icon: "🌤️" });
+    else if (hour < 19) setGreeting({ text: "傍晚好", sub: "晚餐吃什么？", icon: "🌆" });
+    else setGreeting({ text: "晚上好", sub: "来份夜宵？", icon: "🌙" });
   }, []);
 
   // 分类标签
