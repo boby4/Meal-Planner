@@ -162,6 +162,13 @@ export default function MyPage() {
         </div>
         {user ? (
           <div className="flex items-center gap-2">
+            <Link
+              href="/preferences"
+              className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
+              title="饮食偏好"
+            >
+              ⚙️
+            </Link>
             <div className="w-8 h-8 rounded-full bg-[#FF6B35] text-white flex items-center justify-center text-xs font-bold">
               {user.email[0].toUpperCase()}
             </div>

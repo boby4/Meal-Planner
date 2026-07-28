@@ -1,15 +1,18 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { FilterPanel } from "@/components/FilterPanel";
 import { IngredientInput } from "@/components/IngredientInput";
+import { PreferencesPanel } from "@/components/PreferencesPanel";
 import { useRecommendation } from "@/hooks/useRecommendation";
 import { useMealStore } from "@/stores/useMealStore";
 import { useAuth } from "@/hooks/useAuth";
+import { usePreferences } from "@/hooks/usePreferences";
+import type { UserPreferences } from "@/lib/types";
 
 type HomeView = "main" | "ai" | "ingredient" | "search";
 
@@ -25,6 +28,7 @@ export default function HomePage() {
   const [view, setView] = useState<HomeView>("main");
   const [isRandomLoading, setIsRandomLoading] = useState(false);
   const { user } = useAuth();
+  const { needsOnboarding, savePreferences, skipOnboarding, preferences } = usePreferences();
   const { randomRecommend, aiRecommend, ingredientRecommend } =
     useRecommendation();
   const { isLoading } = useMealStore();
@@ -36,6 +40,61 @@ export default function HomePage() {
   const [isSearching, setIsSearching] = useState(false);
   
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // 搜索历史
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  useEffect(() => {
+    const stored = localStorage.getItem("meal_search_history");
+    if (stored) {
+      try { setSearchHistory(JSON.parse(stored)); } catch { /* ignore */ }
+    }
+  }, []);
+
+  const addToSearchHistory = (q: string) => {
+    setSearchHistory((prev) => {
+      const next = [q, ...prev.filter((h) => h !== q)].slice(0, 10);
+      localStorage.setItem("meal_search_history", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const clearSearchHistory = () => {
+    setSearchHistory([]);
+    localStorage.removeItem("meal_search_history");
+  };
+
+  // 热门搜索
+  const HOT_SEARCHES = ["红烧肉", "番茄炒蛋", "可乐鸡翅", "酸菜鱼", "宫保鸡丁", "麻婆豆腐"];
+
+  // 根据时间的问候语
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 6) return { text: "夜深了", sub: "来点夜宵？", icon: "🌙" };
+    if (hour < 9) return { text: "早上好", sub: "早餐吃什么？", icon: "🌅" };
+    if (hour < 11) return { text: "上午好", sub: "想好吃什么了吗？", icon: "☀️" };
+    if (hour < 13) return { text: "中午好", sub: "午餐时间到！", icon: "🌞" };
+    if (hour < 17) return { text: "下午好", sub: "来份下午茶？", icon: "🌤️" };
+    if (hour < 19) return { text: "傍晚好", sub: "晚餐吃什么？", icon: "🌆" };
+    return { text: "晚上好", sub: "来份夜宵？", icon: "🌙" };
+  }, []);
+
+  // 分类标签
+  const CATEGORIES = [
+    { label: "川菜", icon: "🌶️" },
+    { label: "粤菜", icon: "🥘" },
+    { label: "湘菜", icon: "🔥" },
+    { label: "鲁菜", icon: "🐟" },
+    { label: "江浙菜", icon: "🍲" },
+    { label: "东北菜", icon: "🥢" },
+    { label: "家常菜", icon: "🏠" },
+    { label: "快手菜", icon: "⚡" },
+  ];
+
+  const handleCategorySearch = (category: string) => {
+    setSearchQuery(category);
+    setView("search");
+    doSearch(category);
+  };
 
   const doSearch = useCallback(async (q: string) => {
     if (!q.trim()) {
@@ -63,7 +122,16 @@ export default function HomePage() {
   }, [view]);
 
   const handleSearchSubmit = () => {
-    if (searchQuery.trim()) doSearch(searchQuery.trim());
+    if (searchQuery.trim()) {
+      addToSearchHistory(searchQuery.trim());
+      doSearch(searchQuery.trim());
+    }
+  };
+
+  const handleQuickSearch = (q: string) => {
+    setSearchQuery(q);
+    addToSearchHistory(q);
+    doSearch(q);
   };
 
   const handleRandom = async () => {
@@ -92,34 +160,55 @@ export default function HomePage() {
     router.push("/recommend");
   };
 
+  const handleOnboardingSave = async (prefs: UserPreferences) => {
+    await savePreferences(prefs);
+  };
+
   return (
     <main className="flex-1 flex flex-col items-center px-4 py-12 max-w-md mx-auto w-full">
+      {/* 首次引导 */}
+      {needsOnboarding && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-50 bg-[#FFF8F2]"
+        >
+          <PreferencesPanel
+            isOnboarding
+            onSave={handleOnboardingSave}
+            onSkip={skipOnboarding}
+          />
+        </motion.div>
+      )}
+
       {/* 顶部用户状态 */}
-      <div className="w-full flex justify-end mb-2">
+      <div className="w-full flex justify-end mb-2 gap-2">
         {user ? (
-          <Link href="/my" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
-            👤 {user.email.split("@")[0]}
-          </Link>
+          <>
+            <Link href="/preferences" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
+              ⚙️ 偏好
+            </Link>
+            <Link href="/my" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
+              👤 {user.email.split("@")[0]}
+            </Link>
+          </>
         ) : (
           <Link href="/login" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
             登录/注册
           </Link>
         )}
       </div>
-      {/* Logo / Title */}
+      {/* 问候语 */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-12"
+        className="w-full mb-6"
       >
-        <h1 className="text-3xl font-bold text-gray-900 mb-3">
-          🍳 今天吃什么
+        <h1 className="text-2xl font-bold text-gray-900">
+          {greeting.icon} {greeting.text}
+          {user && <span className="text-lg font-normal text-gray-500">，{user.email.split("@")[0]}</span>}
         </h1>
-        <p className="text-gray-500">
-          不知道吃什么？
-          <br />
-          <span className="text-[#FF6B35] font-medium">让 AI 帮你决定。</span>
-        </p>
+        <p className="text-sm text-gray-400 mt-1">{greeting.sub}</p>
       </motion.div>
 
       <AnimatePresence mode="wait">
@@ -129,123 +218,96 @@ export default function HomePage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="w-full space-y-4"
+            className="w-full space-y-6"
           >
-            {/* ① 随机推荐 */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-            >
-              <Button
-                onClick={handleRandom}
-                disabled={isRandomLoading}
-                className="w-full h-auto py-5 rounded-3xl bg-[#FF6B35] hover:bg-[#E55A2B] text-white shadow-lg shadow-orange-200/50 text-left"
-              >
-                <div className="flex items-center gap-4 w-full">
-                  {isRandomLoading ? (
-                    <>
-                      <motion.span
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        className="text-3xl inline-block"
-                      >
-                        🎲
-                      </motion.span>
-                      <div className="text-left">
-                        <div className="font-bold text-base">正在挑选菜谱...</div>
-                        <div className="text-xs opacity-80 mt-0.5">
-                          AI 正在为你寻找今天的惊喜
-                        </div>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-3xl">🎲</span>
-                      <div className="text-left">
-                        <div className="font-bold text-base">今天吃什么</div>
-                        <div className="text-xs opacity-80 mt-0.5">
-                          随机推荐一道菜，治好选择困难症
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </Button>
-            </motion.div>
+            {/* 快速操作 - 2x2 网格 */}
+            <div className="grid grid-cols-2 gap-3">
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+                <button
+                  onClick={handleRandom}
+                  disabled={isRandomLoading}
+                  className="w-full p-4 rounded-2xl bg-[#FF6B35] text-white shadow-lg shadow-orange-200/50 text-left hover:bg-[#E55A2B] transition-all active:scale-95"
+                >
+                  <span className="text-2xl">{isRandomLoading ? "⏳" : "🎲"}</span>
+                  <p className="font-bold text-sm mt-2">随机推荐</p>
+                  <p className="text-xs opacity-80 mt-0.5">治好选择困难症</p>
+                </button>
+              </motion.div>
 
-            {/* ② AI 推荐 */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-            >
-              <Button
-                onClick={() => setView("ai")}
-                variant="outline"
-                className="w-full h-auto py-5 rounded-3xl border-gray-200 bg-white hover:bg-gray-50 shadow-lg shadow-gray-100/50 text-left"
-              >
-                <div className="flex items-center gap-4 w-full">
-                  <span className="text-3xl">🤖</span>
-                  <div className="text-left">
-                    <div className="font-bold text-base text-gray-900">
-                      AI 推荐
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      根据口味、时间、预算智能推荐
-                    </div>
-                  </div>
-                </div>
-              </Button>
-            </motion.div>
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+                <button
+                  onClick={() => setView("ai")}
+                  className="w-full p-4 rounded-2xl bg-white border border-gray-100 shadow-lg shadow-gray-100/50 text-left hover:bg-gray-50 transition-all active:scale-95"
+                >
+                  <span className="text-2xl">🤖</span>
+                  <p className="font-bold text-sm mt-2 text-gray-900">AI 推荐</p>
+                  <p className="text-xs text-gray-400 mt-0.5">智能匹配口味</p>
+                </button>
+              </motion.div>
 
-            {/* ③ 冰箱有什么 */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-            >
-              <Button
-                onClick={() => setView("ingredient")}
-                variant="outline"
-                className="w-full h-auto py-5 rounded-3xl border-gray-200 bg-white hover:bg-gray-50 shadow-lg shadow-gray-100/50 text-left"
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+                <button
+                  onClick={() => setView("ingredient")}
+                  className="w-full p-4 rounded-2xl bg-white border border-gray-100 shadow-lg shadow-gray-100/50 text-left hover:bg-gray-50 transition-all active:scale-95"
+                >
+                  <span className="text-2xl">🧊</span>
+                  <p className="font-bold text-sm mt-2 text-gray-900">冰箱食材</p>
+                  <p className="text-xs text-gray-400 mt-0.5">有什么做什么</p>
+                </button>
+              </motion.div>
+
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+                <button
+                  onClick={() => setView("search")}
+                  className="w-full p-4 rounded-2xl bg-white border border-gray-100 shadow-lg shadow-gray-100/50 text-left hover:bg-gray-50 transition-all active:scale-95"
+                >
+                  <span className="text-2xl">🔍</span>
+                  <p className="font-bold text-sm mt-2 text-gray-900">搜索菜谱</p>
+                  <p className="text-xs text-gray-400 mt-0.5">按菜名搜索</p>
+                </button>
+              </motion.div>
+            </div>
+
+            {/* 个性化推荐提示 */}
+            {preferences.diet_goal !== "none" && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="p-4 rounded-2xl bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100"
               >
-                <div className="flex items-center gap-4 w-full">
-                  <span className="text-3xl">🧊</span>
-                  <div className="text-left">
-                    <div className="font-bold text-base text-gray-900">
-                      冰箱有什么
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      输入现有食材，推荐可以做的菜
-                    </div>
-                  </div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-lg">✨</span>
+                  <span className="text-sm font-semibold text-gray-800">为你定制</span>
                 </div>
-              </Button>
-            </motion.div>
-            {/* ④ 搜索菜谱 */}
+                <p className="text-xs text-gray-500">
+                  {preferences.diet_goal === "lose_weight" && "已开启减脂模式，推荐低热量菜谱"}
+                  {preferences.diet_goal === "gain_muscle" && "已开启增肌模式，推荐高蛋白菜谱"}
+                  {preferences.diet_goal === "vegetarian" && "已开启素食模式，推荐素食菜谱"}
+                  {preferences.taste_prefs.length > 0 &&
+                    ` · 偏好${preferences.taste_prefs.join("、")}口味`}
+                </p>
+              </motion.div>
+            )}
+
+            {/* 分类浏览 */}
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
+              transition={{ delay: 0.35 }}
             >
-              <Button
-                onClick={() => setView("search")}
-                variant="outline"
-                className="w-full h-auto py-5 rounded-3xl border-gray-200 bg-white hover:bg-gray-50 shadow-lg shadow-gray-100/50 text-left"
-              >
-                <div className="flex items-center gap-4 w-full">
-                  <span className="text-3xl">🔍</span>
-                  <div className="text-left">
-                    <div className="font-bold text-base text-gray-900">
-                      搜索菜谱
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      输入菜名，快速找到想吃的菜
-                    </div>
-                  </div>
-                </div>
-              </Button>
+              <h2 className="text-sm font-semibold text-gray-700 mb-3">🏷️ 按菜系浏览</h2>
+              <div className="flex flex-wrap gap-2">
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat.label}
+                    onClick={() => handleCategorySearch(cat.label)}
+                    className="px-3 py-2 rounded-xl bg-white border border-gray-100 text-sm text-gray-600 hover:border-[#FF6B35]/40 hover:text-[#FF6B35] transition-all"
+                  >
+                    {cat.icon} {cat.label}
+                  </button>
+                ))}
+              </div>
             </motion.div>
           </motion.div>
         )}
@@ -389,10 +451,45 @@ export default function HomePage() {
             )}
 
             {!isSearching && !searchQuery && (
-              <div className="text-center py-12 text-gray-400">
-                <div className="text-4xl mb-3">🔍</div>
-                <div className="text-sm">输入菜名开始搜索</div>
-                <div className="text-xs mt-1">试试「红烧肉」「番茄炒蛋」「可乐鸡翅」</div>
+              <div className="space-y-5">
+                {/* 搜索历史 */}
+                {searchHistory.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-gray-500">🕐 搜索历史</span>
+                      <button onClick={clearSearchHistory} className="text-xs text-gray-400 hover:text-red-500">
+                        清除
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {searchHistory.map((q) => (
+                        <button
+                          key={q}
+                          onClick={() => handleQuickSearch(q)}
+                          className="px-3 py-1.5 rounded-xl bg-gray-50 text-sm text-gray-600 hover:bg-orange-50 hover:text-[#FF6B35] transition-all"
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* 热门搜索 */}
+                <div>
+                  <span className="text-xs font-medium text-gray-500 mb-2 block">🔥 热门搜索</span>
+                  <div className="flex flex-wrap gap-2">
+                    {HOT_SEARCHES.map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => handleQuickSearch(q)}
+                        className="px-3 py-1.5 rounded-xl bg-gray-50 text-sm text-gray-600 hover:bg-orange-50 hover:text-[#FF6B35] transition-all"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </motion.div>
@@ -400,17 +497,17 @@ export default function HomePage() {
       </AnimatePresence>
 
       {/* Footer */}
-      <div className="mt-auto pt-12 flex flex-col items-center gap-3">
+      <div className="mt-auto pt-8 flex flex-col items-center gap-2">
         <Link href="/my">
-          <Button variant="ghost" className="text-gray-500 hover:text-[#FF6B35] text-sm">
-            ❤️ 我的收藏 · 📋 浏览历史 · 🛒 买菜清单
+          <Button variant="ghost" className="text-gray-400 hover:text-[#FF6B35] text-xs">
+            ❤️ 收藏 · 🛒 清单 · 📅 打卡
           </Button>
         </Link>
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.5 }}
-          className="text-xs text-gray-400"
+          className="text-xs text-gray-300"
         >
           Powered by DeepSeek AI
         </motion.p>

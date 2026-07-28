@@ -55,3 +55,31 @@ export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
+
+/** 饮食目标 */
+export type DietGoal = "none" | "lose_weight" | "gain_muscle" | "vegetarian";
+
+/** 饮食类型 */
+export type DietType = "normal" | "vegetarian" | "low_carb" | "high_protein";
+
+/** 用户饮食偏好 */
+export interface UserPreferences {
+  diet_goal: DietGoal;
+  diet_type: DietType;
+  allergens: string[];
+  taste_prefs: string[];
+  cook_time_pref: string;
+  people_count: number;
+  has_completed_onboarding: boolean;
+}
+
+/** 默认偏好 */
+export const DEFAULT_PREFERENCES: UserPreferences = {
+  diet_goal: "none",
+  diet_type: "normal",
+  allergens: [],
+  taste_prefs: [],
+  cook_time_pref: "",
+  people_count: 2,
+  has_completed_onboarding: false,
+};

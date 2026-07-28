@@ -92,6 +92,16 @@ async function initSqlJs() {
       created_at TEXT DEFAULT (datetime('now'))
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      device_id TEXT DEFAULT '',
+      preferences TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
 
   _sqlJsDB = db;
   _sqlJsReady = true;

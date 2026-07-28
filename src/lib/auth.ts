@@ -135,7 +135,7 @@ export async function mergeDeviceData(userId: number, deviceId: string): Promise
   const env = await getEnv();
   if (!env?.DB || !deviceId) return;
 
-  const tables = ["favorites", "history", "weekly_menu", "shopping_list"];
+  const tables = ["favorites", "history", "weekly_menu", "shopping_list", "user_preferences"];
   for (const table of tables) {
     await env.DB.prepare(
       `UPDATE ${table} SET user_id = ?, device_id = '' WHERE device_id = ? AND user_id IS NULL`
