@@ -271,6 +271,20 @@ export default function HomePage() {
               </motion.div>
             </div>
 
+            {/* 饮食打卡入口 */}
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}>
+              <button
+                onClick={() => router.push("/checkin")}
+                className="w-full p-4 rounded-2xl bg-white border border-gray-100 shadow-lg shadow-gray-100/50 text-left hover:bg-gray-50 transition-all active:scale-95 flex items-center gap-3"
+              >
+                <span className="text-2xl">📅</span>
+                <div>
+                  <p className="font-bold text-sm text-gray-900">饮食打卡</p>
+                  <p className="text-xs text-gray-400 mt-0.5">记录每日三餐，养成健康习惯</p>
+                </div>
+              </button>
+            </motion.div>
+
             {/* 个性化推荐提示 */}
             {preferences.diet_goal !== "none" && (
               <motion.div

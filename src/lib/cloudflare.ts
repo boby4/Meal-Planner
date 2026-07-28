@@ -102,6 +102,24 @@ async function initSqlJs() {
       updated_at TEXT DEFAULT (datetime('now'))
     )
   `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS check_ins (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      device_id TEXT DEFAULT '',
+      check_date TEXT NOT NULL,
+      meal_type TEXT NOT NULL,
+      recipe_name TEXT NOT NULL,
+      recipe_data TEXT DEFAULT '{}',
+      image_url TEXT,
+      note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_check_in_date
+    ON check_ins(user_id, check_date, meal_type)
+  `);
 
   _sqlJsDB = db;
   _sqlJsReady = true;
