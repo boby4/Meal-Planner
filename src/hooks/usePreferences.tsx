@@ -27,6 +27,14 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [skipped, setSkipped] = useState(false);
 
+  // 初始化时从 localStorage 读取 skipped 状态
+  useEffect(() => {
+    const stored = localStorage.getItem("meal_onboarding_skipped");
+    if (stored === "true") {
+      setSkipped(true);
+    }
+  }, []);
+
   const fetchPreferences = useCallback(async () => {
     try {
       const res = await fetch("/api/preferences");
@@ -51,12 +59,16 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       });
       if (res.ok) {
         setPreferences(prefs);
+        // 完成偏好设置后，清除 skipped 标记
+        localStorage.removeItem("meal_onboarding_skipped");
+        setSkipped(false);
       }
     } catch { /* ignore */ }
   }, []);
 
   const skipOnboarding = useCallback(() => {
     setSkipped(true);
+    localStorage.setItem("meal_onboarding_skipped", "true");
   }, []);
 
   const needsOnboarding = !loading && !skipped && !preferences.has_completed_onboarding;
