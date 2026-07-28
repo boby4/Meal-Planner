@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 
-type Tab = "favorites" | "history" | "shopping";
+type Tab = "favorites" | "checkin" | "shopping";
 
 interface FavoriteItem {
   id: number;
@@ -15,12 +15,12 @@ interface FavoriteItem {
   created_at: string;
 }
 
-interface HistoryItem {
+interface CheckInRecord {
   id: number;
+  check_date: string;
+  meal_type: string;
   recipe_name: string;
-  recipe_data: unknown;
-  source: string;
-  viewed_at: string;
+  note?: string;
 }
 
 interface ShoppingItem {
@@ -31,11 +31,10 @@ interface ShoppingItem {
   related_recipe: string;
 }
 
-const SOURCE_LABEL: Record<string, string> = {
-  detail: "浏览",
-  random: "随机推荐",
-  ai: "AI 推荐",
-  ingredient: "食材推荐",
+const MEAL_LABEL: Record<string, { icon: string; label: string }> = {
+  breakfast: { icon: "🌅", label: "早餐" },
+  lunch: { icon: "☀️", label: "午餐" },
+  dinner: { icon: "🌙", label: "晚餐" },
 };
 
 export default function MyPage() {
@@ -43,7 +42,7 @@ export default function MyPage() {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("favorites");
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [checkIns, setCheckIns] = useState<CheckInRecord[]>([]);
   const [shopping, setShopping] = useState<ShoppingItem[]>([]);
   const [newItem, setNewItem] = useState("");
   const [loading, setLoading] = useState(true);
@@ -56,11 +55,14 @@ export default function MyPage() {
     } catch { /* ignore */ }
   }, [authFetch]);
 
-  const loadHistory = useCallback(async () => {
+  const loadCheckIns = useCallback(async () => {
     try {
-      const res = await authFetch("/api/history");
+      const res = await authFetch("/api/checkin?month=" + (() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      })());
       const data = await res.json();
-      setHistory(data.history || []);
+      setCheckIns(data.checkIns || []);
     } catch { /* ignore */ }
   }, [authFetch]);
 
@@ -75,19 +77,14 @@ export default function MyPage() {
   useEffect(() => {
     setLoading(true);
     if (tab === "favorites") loadFavorites();
-    else if (tab === "history") loadHistory();
+    else if (tab === "checkin") loadCheckIns();
     else loadShopping();
     setLoading(false);
-  }, [tab, loadFavorites, loadHistory, loadShopping]);
+  }, [tab, loadFavorites, loadCheckIns, loadShopping]);
 
   const removeFavorite = async (name: string) => {
     await authFetch(`/api/favorites?name=${encodeURIComponent(name)}`, { method: "DELETE" });
     setFavorites((prev) => prev.filter((f) => f.recipe_name !== name));
-  };
-
-  const clearHistory = async () => {
-    await authFetch("/api/history", { method: "DELETE" });
-    setHistory([]);
   };
 
   const addShoppingItem = async () => {
@@ -122,9 +119,17 @@ export default function MyPage() {
     setShopping((prev) => prev.filter((item) => !item.checked));
   };
 
+  // 按日期分组打卡记录
+  const groupedCheckIns = checkIns.reduce<Record<string, CheckInRecord[]>>((acc, record) => {
+    if (!acc[record.check_date]) acc[record.check_date] = [];
+    acc[record.check_date].push(record);
+    return acc;
+  }, {});
+  const sortedDates = Object.keys(groupedCheckIns).sort((a, b) => b.localeCompare(a));
+
   const tabs: { key: Tab; label: string; icon: string; count: number }[] = [
     { key: "favorites", label: "收藏", icon: "❤️", count: favorites.length },
-    { key: "history", label: "历史", icon: "🕐", count: history.length },
+    { key: "checkin", label: "打卡", icon: "📅", count: checkIns.length },
     { key: "shopping", label: "清单", icon: "🛒", count: shopping.filter((i) => !i.checked).length },
   ];
 
@@ -163,6 +168,13 @@ export default function MyPage() {
         {user ? (
           <div className="flex items-center gap-2">
             <Link
+              href="/checkin"
+              className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
+              title="饮食打卡"
+            >
+              📅
+            </Link>
+            <Link
               href="/preferences"
               className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 hover:bg-gray-200 transition-colors"
               title="饮食偏好"
@@ -199,7 +211,7 @@ export default function MyPage() {
           <div className="text-6xl mb-6">🔒</div>
           <h2 className="text-xl font-bold text-gray-800 mb-2">请先登录</h2>
           <p className="text-sm text-gray-500 text-center mb-8">
-            登录后即可查看收藏、浏览历史和买菜清单
+            登录后即可查看收藏、打卡记录和买菜清单
           </p>
           <Link
             href="/login"
@@ -288,47 +300,37 @@ export default function MyPage() {
             </motion.div>
           )}
 
-          {/* ====== 历史 ====== */}
-          {tab === "history" && (
-            <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-2.5">
-              {history.length > 0 && (
-                <div className="flex justify-end mb-1">
-                  <button
-                    onClick={clearHistory}
-                    className="text-xs text-gray-400 hover:text-red-500 transition-colors flex items-center gap-1"
-                  >
-                    🗑️ 清空历史
-                  </button>
-                </div>
-              )}
-              {history.length === 0 ? (
-                <EmptyState emoji="🕐" text="暂无浏览记录" sub="看过的菜谱会出现在这里" />
+          {/* ====== 打卡记录 ====== */}
+          {tab === "checkin" && (
+            <motion.div variants={stagger} initial="initial" animate="animate" className="space-y-4">
+              {sortedDates.length === 0 ? (
+                <EmptyState emoji="📅" text="暂无打卡记录" sub="去打卡页面记录每日三餐吧" />
               ) : (
-                history.map((item) => (
-                  <motion.div
-                    key={item.id}
-                    variants={fadeUp}
-                    className="group flex items-center gap-3 p-3.5 bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-blue-100 transition-all"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-lg flex-shrink-0">
-                      📖
+                sortedDates.map((date) => (
+                  <motion.div key={date} variants={fadeUp}>
+                    <p className="text-sm font-bold text-gray-600 mb-2">{date}</p>
+                    <div className="space-y-2">
+                      {groupedCheckIns[date].map((record) => {
+                        const meal = MEAL_LABEL[record.meal_type] || { icon: "🍽️", label: record.meal_type };
+                        return (
+                          <div
+                            key={record.id}
+                            className="flex items-center gap-3 p-3 bg-white rounded-xl border border-gray-100 shadow-sm"
+                          >
+                            <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center text-lg flex-shrink-0">
+                              {meal.icon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{record.recipe_name}</p>
+                              <p className="text-[11px] text-gray-400">{meal.label}</p>
+                            </div>
+                            {record.note && (
+                              <span className="text-[11px] text-gray-400 truncate max-w-[80px]">{record.note}</span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <Link
-                      href={`/recipe/${encodeURIComponent(item.recipe_name)}`}
-                      className="flex-1 min-w-0"
-                    >
-                      <p className="font-semibold text-gray-800 hover:text-[#FF6B35] transition-colors truncate">
-                        {item.recipe_name}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {item.source && (
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-gray-100 text-gray-500">
-                            {SOURCE_LABEL[item.source] || item.source}
-                          </span>
-                        )}
-                        <span className="text-[11px] text-gray-400">{item.viewed_at}</span>
-                      </div>
-                    </Link>
                   </motion.div>
                 ))
               )}
