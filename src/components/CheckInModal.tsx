@@ -20,6 +20,7 @@ interface CheckInModalProps {
   date: string;
   onClose: () => void;
   onUpdate: () => void;
+  authFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 const MEAL_TYPES = [
@@ -28,7 +29,7 @@ const MEAL_TYPES = [
   { key: "dinner", label: "晚餐", icon: "🌙", time: "18:00" },
 ];
 
-export default function CheckInModal({ date, onClose, onUpdate }: CheckInModalProps) {
+export default function CheckInModal({ date, onClose, onUpdate, authFetch }: CheckInModalProps) {
   const [records, setRecords] = useState<CheckInRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingMeal, setEditingMeal] = useState<string | null>(null);
@@ -42,7 +43,7 @@ export default function CheckInModal({ date, onClose, onUpdate }: CheckInModalPr
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/checkin?date=${date}`);
+      const res = await authFetch(`/api/checkin?date=${date}`);
       if (res.ok) {
         const data = await res.json();
         setRecords(data.checkIns || []);
@@ -62,7 +63,7 @@ export default function CheckInModal({ date, onClose, onUpdate }: CheckInModalPr
     }
     setFavLoading(true);
     try {
-      const res = await fetch("/api/favorites");
+      const res = await authFetch("/api/favorites");
       if (res.ok) {
         const data = await res.json();
         setFavorites(data.favorites || []);
@@ -81,7 +82,7 @@ export default function CheckInModal({ date, onClose, onUpdate }: CheckInModalPr
     if (!recipeName.trim()) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/checkin", {
+      const res = await authFetch("/api/checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -105,7 +106,7 @@ export default function CheckInModal({ date, onClose, onUpdate }: CheckInModalPr
 
   const handleDelete = async (id: number) => {
     try {
-      const res = await fetch(`/api/checkin?id=${id}`, { method: "DELETE" });
+      const res = await authFetch(`/api/checkin?id=${id}`, { method: "DELETE" });
       if (res.ok) {
         await loadRecords();
         onUpdate();

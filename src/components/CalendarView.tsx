@@ -3,15 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-interface CheckInRecord {
-  id: number;
-  check_date: string;
-  meal_type: string;
-  recipe_name: string;
-}
-
 interface CalendarViewProps {
   onDateClick: (date: string) => void;
+  authFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"];
@@ -29,7 +23,7 @@ function formatDate(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-export default function CalendarView({ onDateClick }: CalendarViewProps) {
+export default function CalendarView({ onDateClick, authFetch }: CalendarViewProps) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
@@ -41,7 +35,7 @@ export default function CalendarView({ onDateClick }: CalendarViewProps) {
     setLoading(true);
     try {
       const monthStr = `${y}-${String(m).padStart(2, "0")}`;
-      const res = await fetch(`/api/checkin?month=${monthStr}`);
+      const res = await authFetch(`/api/checkin?month=${monthStr}`);
       if (res.ok) {
         const data = await res.json();
         const map: Record<string, number> = {};
@@ -53,7 +47,7 @@ export default function CalendarView({ onDateClick }: CalendarViewProps) {
       }
     } catch { /* ignore */ }
     setLoading(false);
-  }, []);
+  }, [authFetch]);
 
   useEffect(() => {
     loadMonthData(year, month);

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 
 interface CheckInStatsProps {
   refreshKey: number;
+  authFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
 interface Stats {
@@ -13,7 +14,7 @@ interface Stats {
   weekDays: { date: string; count: number }[];
 }
 
-export default function CheckInStats({ refreshKey }: CheckInStatsProps) {
+export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProps) {
   const [stats, setStats] = useState<Stats>({
     totalDays: 0,
     streak: 0,
@@ -26,7 +27,7 @@ export default function CheckInStats({ refreshKey }: CheckInStatsProps) {
       const today = new Date();
       const monthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 
-      const res = await fetch(`/api/checkin?month=${monthStr}`);
+      const res = await authFetch(`/api/checkin?month=${monthStr}`);
       if (!res.ok) return;
 
       const data = await res.json();

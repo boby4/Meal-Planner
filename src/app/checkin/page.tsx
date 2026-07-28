@@ -2,12 +2,14 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
 import CalendarView from "@/components/CalendarView";
 import CheckInModal from "@/components/CheckInModal";
 import CheckInStats from "@/components/CheckInStats";
 
 export default function CheckInPage() {
   const router = useRouter();
+  const { authFetch } = useAuth();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [statsRefreshKey, setStatsRefreshKey] = useState(0);
 
@@ -35,10 +37,10 @@ export default function CheckInPage() {
 
       <div className="max-w-md mx-auto px-4 py-4 space-y-4">
         {/* 日历 */}
-        <CalendarView onDateClick={handleDateClick} />
+        <CalendarView onDateClick={handleDateClick} authFetch={authFetch} />
 
         {/* 统计 */}
-        <CheckInStats refreshKey={statsRefreshKey} />
+        <CheckInStats refreshKey={statsRefreshKey} authFetch={authFetch} />
       </div>
 
       {/* 打卡模态框 */}
@@ -47,6 +49,7 @@ export default function CheckInPage() {
           date={selectedDate}
           onClose={handleCloseModal}
           onUpdate={handleUpdate}
+          authFetch={authFetch}
         />
       )}
     </div>
