@@ -18,7 +18,12 @@ export function buildAIRecommendPrompt(
 ): ChatMessage[] {
   const parts: string[] = [];
 
-  parts.push(`请根据以下条件推荐3道家常菜谱：`);
+  if (filters.cuisine) {
+    parts.push(`请推荐3道【${filters.cuisine}】的菜品。必须是正宗的${filters.cuisine}，不要推荐其他菜系的菜。`);
+  } else {
+    parts.push(`请根据以下条件推荐3道家常菜谱：`);
+  }
+
   parts.push(`- 用餐人数：${filters.people}人`);
 
   if (filters.taste.length > 0) {
@@ -32,9 +37,6 @@ export function buildAIRecommendPrompt(
   }
   if (filters.ingredients.length > 0) {
     parts.push(`- 已有食材：${filters.ingredients.join("、")}`);
-  }
-  if (filters.cuisine) {
-    parts.push(`- 菜系：${filters.cuisine}`);
   }
   if (filters.isDiet) {
     parts.push(`- 减脂餐：是，请推荐低脂低卡的健康菜品`);
