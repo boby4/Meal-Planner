@@ -79,7 +79,7 @@ export default function HomePage() {
     else setGreeting({ text: "晚上好", sub: "来份夜宵？", icon: "🌙" });
   }, []);
 
-  // 分类标签
+  // 分类标签（点击后调用 AI 推荐，不走搜索）
   const CATEGORIES = [
     { label: "川菜", icon: "🌶️" },
     { label: "粤菜", icon: "🥘" },
@@ -91,10 +91,12 @@ export default function HomePage() {
     { label: "快手菜", icon: "⚡" },
   ];
 
-  const handleCategorySearch = (category: string) => {
-    setSearchQuery(category);
-    setView("search");
-    doSearch(category);
+  const handleCategoryClick = async (category: string) => {
+    // 设置菜系筛选条件，调用 AI 推荐
+    useMealStore.getState().resetFilters();
+    useMealStore.getState().setFilters({ cuisine: category });
+    await aiRecommend();
+    router.push("/recommend");
   };
 
   const doSearch = useCallback(async (q: string) => {
@@ -302,7 +304,7 @@ export default function HomePage() {
                 {CATEGORIES.map((cat) => (
                   <button
                     key={cat.label}
-                    onClick={() => handleCategorySearch(cat.label)}
+                    onClick={() => handleCategoryClick(cat.label)}
                     className="px-3 py-2 rounded-xl bg-white border border-gray-100 text-sm text-gray-600 hover:border-[#FF6B35]/40 hover:text-[#FF6B35] transition-all"
                   >
                     {cat.icon} {cat.label}

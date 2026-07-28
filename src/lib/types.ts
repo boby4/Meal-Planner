@@ -45,6 +45,7 @@ export interface FilterOptions {
   budget: string;
   ingredients: string[];
   isDiet: boolean;
+  cuisine: string;
 }
 
 /** 推荐模式 */

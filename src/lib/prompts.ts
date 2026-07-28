@@ -33,6 +33,9 @@ export function buildAIRecommendPrompt(
   if (filters.ingredients.length > 0) {
     parts.push(`- 已有食材：${filters.ingredients.join("、")}`);
   }
+  if (filters.cuisine) {
+    parts.push(`- 菜系：${filters.cuisine}`);
+  }
   if (filters.isDiet) {
     parts.push(`- 减脂餐：是，请推荐低脂低卡的健康菜品`);
   }

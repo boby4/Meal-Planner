@@ -42,6 +42,7 @@ const DEFAULT_FILTERS: FilterOptions = {
   budget: "",
   ingredients: [],
   isDiet: false,
+  cuisine: "",
 };
 
 /** 历史记录最大数量（避免 excludeNames 过长） */
