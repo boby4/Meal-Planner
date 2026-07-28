@@ -120,7 +120,10 @@ export function useRecommendation() {
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      const messages = buildAIRecommendPrompt(filters, history);
+      // 从 store 实时读取 filters（避免闭包问题）
+      const currentFilters = useMealStore.getState().filters;
+      const currentHistory = useMealStore.getState().history;
+      const messages = buildAIRecommendPrompt(currentFilters, currentHistory);
       const result = await fetchAIRecommend(messages, controller.signal);
 
       setMode("ai");
@@ -134,7 +137,7 @@ export function useRecommendation() {
       setLoading(false);
       abortControllerRef.current = null;
     }
-  }, [filters, history, setMode, setRecommendations, setLoading, setError, checkClickInterval, cancelCurrentRequest]);
+  }, [setMode, setRecommendations, setLoading, setError, checkClickInterval, cancelCurrentRequest]);
 
   /** 冰箱食材推荐 */
   const ingredientRecommend = useCallback(
