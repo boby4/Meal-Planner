@@ -9,21 +9,7 @@ const READ_SIZE = 512 * 1024; // 每次读取 512KB（足够解析 ~800 条菜�
 const MEMORY_CACHE_TTL = 10 * 60 * 1000; // 10 分钟
 const SEARCH_CACHE_TTL = 30 * 60 * 1000; // 搜索缓存 30 分钟
 const INDEX_READ_SIZE = 2 * 1024 * 1024; // 索引每次读 2MB
-
-// 菜系分类索引文件映射
-const CUISINE_INDEX_MAP: Record<string, string[]> = {
-  "川菜": ["sichuan_index.json"],
-  "粤菜": ["guangdong_index.json"],
-  "湘菜": ["hunan_index.json"],
-  "鲁菜": ["shandong_index.json"],
-  "江浙菜": ["zhejiang_index.json"],
-  "东北菜": ["dongbei_index.json"],
-  "家常菜": ["jiachang_index.json"],
-  "快手菜": ["kuaishou_index.json"],
-  "素食": ["vegetarian_index.json"],
-  "辣": ["sichuan_index.json", "hunan_index.json"],
-  "清淡": ["guangdong_index.json", "zhejiang_index.json"],
-};
+const MAX_INDEX_READ = 5 * 1024 * 1024; // 最多读 5MB 索引（避免 CPU 超限）
 
 interface CacheEntry {
   data: RecipeSource[];
@@ -235,7 +221,7 @@ export async function searchRecipes(
     return cached.data;
   }
 
-  // L2: 检查 KV 缓存
+  // L2: 检查 KV 缓存（最重要的缓存层，避免重复读取索引）
   const kvCached = await kvCache.get<RecipeSource[]>(kvKey);
   if (kvCached) {
     console.log(`[Recipe] 搜索 KV 缓存命中: "${query}"，${kvCached.length} 条`);
@@ -247,111 +233,27 @@ export async function searchRecipes(
     return kvCached;
   }
 
+  // L3: 读取索引（限制范围，避免 CPU 超限）
+  console.log(`[Recipe] 搜索 "${query}"，从索引读取`);
   const env = await getEnv();
+  const results = await searchByIndex(query, env);
 
-  // 优先使用菜系分类索引（小文件，CPU 友好）
-  const cuisineIndexes = CUISINE_INDEX_MAP[query];
-  if (cuisineIndexes) {
-    console.log(`[Recipe] 使用菜系索引: ${cuisineIndexes.join(", ")}`);
-    const results = await searchByCuisineIndex(cuisineIndexes, env);
-    if (results.length > 0) {
-      // 缓存搜索结果
-      searchCache.set(cacheKey, {
-        data: results,
-        expiresAt: Date.now() + SEARCH_CACHE_TTL,
-      });
-      kvCache.set(kvKey, results, SEARCH_CACHE_TTL / 1000).catch((err) => {
-        console.error("[Recipe] KV 缓存写入失败:", err);
-      });
-      return results;
-    }
+  // 缓存搜索结果（内存 L1 + KV L2）
+  if (results.length > 0) {
+    searchCache.set(cacheKey, {
+      data: results,
+      expiresAt: Date.now() + SEARCH_CACHE_TTL,
+    });
+    kvCache.set(kvKey, results, SEARCH_CACHE_TTL / 1000).catch((err) => {
+      console.error("[Recipe] KV 缓存写入失败:", err);
+    });
   }
 
-  // 降级：使用完整索引（限制读取范围，避免 CPU 超限）
-  console.log(`[Recipe] 降级使用完整索引搜索: "${query}"`);
-  return searchByFullIndex(query, env);
-}
-
-/** 使用菜系分类索引搜索（小文件，快速） */
-async function searchByCuisineIndex(
-  indexFiles: string[],
-  env: any
-): Promise<RecipeSource[]> {
-  const results: RecipeSource[] = [];
-  const matchNames = new Set<string>();
-
-  for (const indexFile of indexFiles) {
-    try {
-      const obj = await env.RECIPE_DATA?.get(indexFile);
-      if (!obj) {
-        console.warn(`[Recipe] 菜系索引不存在: ${indexFile}`);
-        continue;
-      }
-
-      const text = await obj.text();
-      const entries = JSON.parse(text) as Array<{
-        name: string;
-        chunk: number;
-      }>;
-
-      // 收集匹配的菜名和分片
-      for (const entry of entries) {
-        if (entry.name && !matchNames.has(entry.name)) {
-          matchNames.add(entry.name);
-        }
-      }
-
-      console.log(`[Recipe] 从 ${indexFile} 读取 ${entries.length} 条索引`);
-    } catch (err) {
-      console.error(`[Recipe] 读取 ${indexFile} 失败:`, err);
-    }
-  }
-
-  if (matchNames.size === 0) return [];
-
-  // 读取匹配的分片
-  const chunkSet = new Set<number>();
-  for (const indexFile of indexFiles) {
-    try {
-      const obj = await env.RECIPE_DATA?.get(indexFile);
-      if (!obj) continue;
-      const text = await obj.text();
-      const entries = JSON.parse(text) as Array<{ name: string; chunk: number }>;
-      for (const entry of entries) {
-        if (matchNames.has(entry.name)) {
-          chunkSet.add(entry.chunk);
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // 并行读取分片（限制并发）
-  const chunkArr = [...chunkSet];
-  for (let i = 0; i < chunkArr.length && results.length < 50; i += 3) {
-    const batch = chunkArr.slice(i, i + 3);
-    const chunkResults = await Promise.allSettled(
-      batch.map((ci) => readFullChunk(ci))
-    );
-
-    for (const result of chunkResults) {
-      if (result.status === "fulfilled") {
-        for (const recipe of result.value) {
-          if (matchNames.has(recipe.name)) {
-            results.push(recipe);
-          }
-        }
-      }
-    }
-  }
-
-  console.log(`[Recipe] 菜系索引搜索完成: ${results.length} 条`);
   return results;
 }
 
-/** 使用完整索引搜索（限制读取范围，避免 CPU 超限） */
-async function searchByFullIndex(
+/** 从索引搜索（限制读取范围，避免 CPU 超限） */
+async function searchByIndex(
   query: string,
   env: any
 ): Promise<RecipeSource[]> {
@@ -367,16 +269,13 @@ async function searchByFullIndex(
   }
 
   const fileSize = head.size;
-  console.log(`[Recipe] 搜索 "${query}"，索引大小: ${(fileSize / 1024 / 1024).toFixed(1)}MB`);
-
-  // 限制最大读取范围（避免 CPU 超限）
-  const MAX_READ_SIZE = 10 * 1024 * 1024; // 最多读 10MB
-  const readSize = Math.min(fileSize, MAX_READ_SIZE);
-  const stride = INDEX_READ_SIZE;
+  const readSize = Math.min(fileSize, MAX_INDEX_READ);
+  console.log(`[Recipe] 索引大小: ${(fileSize / 1024 / 1024).toFixed(1)}MB，读取: ${(readSize / 1024 / 1024).toFixed(1)}MB`);
 
   // 分段读取索引，查找匹配项
   const matchNames = new Set<string>();
   const matchChunks = new Set<number>();
+  const stride = INDEX_READ_SIZE;
 
   for (let offset = 0; offset < readSize; offset += stride) {
     const length = Math.min(stride, readSize - offset);
@@ -395,9 +294,7 @@ async function searchByFullIndex(
     return [];
   }
 
-  console.log(
-    `[Recipe] 搜索 "${query}": 匹配 ${matchNames.size} 条，涉及 ${matchChunks.size} 个分片`
-  );
+  console.log(`[Recipe] 搜索 "${query}": 匹配 ${matchNames.size} 条，涉及 ${matchChunks.size} 个分片`);
 
   // 读取匹配的分片，提取对应菜谱
   const results: RecipeSource[] = [];
@@ -422,22 +319,6 @@ async function searchByFullIndex(
   }
 
   console.log(`[Recipe] 搜索 "${query}": 返回 ${results.length} 条`);
-
-  // 缓存搜索结果（内存 L1 + KV L2）
-  if (results.length > 0) {
-    // 写入内存缓存
-    searchCache.set(`search:${lowerQuery}`, {
-      data: results,
-      expiresAt: Date.now() + SEARCH_CACHE_TTL,
-    });
-
-    // 异步写入 KV 缓存（不阻塞返回）
-    const kvKey = generateCacheKey("search", lowerQuery);
-    kvCache.set(kvKey, results, SEARCH_CACHE_TTL / 1000).catch((err) => {
-      console.error("[Recipe] KV 缓存写入失败:", err);
-    });
-  }
-
   return results;
 }
 
