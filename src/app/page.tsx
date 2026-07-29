@@ -27,11 +27,17 @@ export default function HomePage() {
   const router = useRouter();
   const [view, setView] = useState<HomeView>("main");
   const [isRandomLoading, setIsRandomLoading] = useState(false);
-  const { user } = useAuth();
+  const { user, updateUsername } = useAuth();
   const { needsOnboarding, savePreferences, skipOnboarding, preferences } = usePreferences();
   const { randomRecommend, aiRecommend, ingredientRecommend } =
     useRecommendation();
   const { isLoading } = useMealStore();
+
+  // 编辑用户名状态
+  const [showEditUsername, setShowEditUsername] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
+  const [updatingUsername, setUpdatingUsername] = useState(false);
+  const [usernameError, setUsernameError] = useState("");
 
   // 搜索状态
   const [searchQuery, setSearchQuery] = useState("");
@@ -167,6 +173,40 @@ export default function HomePage() {
     await savePreferences(prefs);
   };
 
+  const handleUpdateUsername = async () => {
+    if (!newUsername.trim()) {
+      setUsernameError("用户名不能为空");
+      return;
+    }
+    if (newUsername.trim().length < 2) {
+      setUsernameError("用户名至少2个字符");
+      return;
+    }
+    if (newUsername.trim().length > 20) {
+      setUsernameError("用户名不能超过20个字符");
+      return;
+    }
+    
+    setUpdatingUsername(true);
+    setUsernameError("");
+    try {
+      await updateUsername(newUsername.trim());
+      setShowEditUsername(false);
+      setNewUsername("");
+    } catch (err) {
+      setUsernameError(err instanceof Error ? err.message : "修改失败");
+    } finally {
+      setUpdatingUsername(false);
+    }
+  };
+
+  // 获取显示名称（优先用户名，其次邮箱前缀）
+  const getDisplayName = () => {
+    if (!user) return "";
+    if (user.username && user.username.trim()) return user.username;
+    return user.email.split('@')[0];
+  };
+
   return (
     <main className="flex-1 flex flex-col items-center px-4 py-12 max-w-md mx-auto w-full">
       {/* 首次引导 */}
@@ -192,7 +232,7 @@ export default function HomePage() {
               ⚙️ 偏好
             </Link>
             <Link href="/my" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
-              👤 {user.email.split("@")[0]}
+              👤 {getDisplayName()}
             </Link>
           </>
         ) : (
@@ -209,7 +249,21 @@ export default function HomePage() {
       >
         <h1 className="text-2xl font-bold text-gray-900">
           {greeting.icon} {greeting.text}
-          {user && <span className="text-lg font-normal text-gray-500">，{user.email.split("@")[0]}</span>}
+          {user && (
+            <span className="text-lg font-normal text-gray-500">
+              ，{getDisplayName()}
+              <button 
+                onClick={() => {
+                  setNewUsername(getDisplayName());
+                  setShowEditUsername(true);
+                }}
+                className="ml-1 text-xs text-gray-400 hover:text-[#FF6B35] transition-colors"
+                title="修改用户名"
+              >
+                ✏️
+              </button>
+            </span>
+          )}
         </h1>
         <p className="text-sm text-gray-400 mt-1">{greeting.sub}</p>
       </motion.div>
@@ -543,6 +597,46 @@ export default function HomePage() {
           Powered by DeepSeek AI
         </motion.p>
       </div>
+
+      {/* 修改用户名弹窗 */}
+      {showEditUsername && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => { setShowEditUsername(false); setUsernameError(""); }}>
+          <motion.div
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-t-3xl p-5"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">修改用户名</h3>
+              <button onClick={() => { setShowEditUsername(false); setUsernameError(""); }} className="text-gray-400 text-2xl leading-none">×</button>
+            </div>
+            <div className="mb-4">
+              <input
+                type="text"
+                value={newUsername}
+                onChange={(e) => { setNewUsername(e.target.value); setUsernameError(""); }}
+                placeholder="输入新用户名"
+                minLength={2}
+                maxLength={20}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 focus:border-[#FF6B35] transition-all"
+              />
+              {usernameError && (
+                <p className="text-xs text-red-500 mt-2">{usernameError}</p>
+              )}
+              <p className="text-xs text-gray-400 mt-2">2-20个字符，修改后其他用户将看到你的新用户名</p>
+            </div>
+            <button
+              onClick={handleUpdateUsername}
+              disabled={updatingUsername || !newUsername.trim()}
+              className="w-full py-3 rounded-2xl bg-[#FF6B35] hover:bg-[#E55A2B] disabled:bg-gray-200 text-white font-bold transition-all"
+            >
+              {updatingUsername ? "修改中..." : "确认修改"}
+            </button>
+          </motion.div>
+        </div>
+      )}
     </main>
   );
 }
