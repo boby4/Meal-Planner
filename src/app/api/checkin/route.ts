@@ -60,18 +60,18 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { check_date, meal_type, recipe_name, recipe_data, image_url, note } = body;
+    const { check_date, meal_type, recipe_name, recipe_data, image_url, note, cost } = body;
 
     if (!check_date || !meal_type || !recipe_name) {
       return NextResponse.json({ error: "缺少必填字段" }, { status: 400 });
     }
 
     await env.DB.prepare(
-      `INSERT INTO check_ins (user_id, device_id, check_date, meal_type, recipe_name, recipe_data, image_url, note)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO check_ins (user_id, device_id, check_date, meal_type, recipe_name, recipe_data, image_url, note, cost)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id, check_date, meal_type)
-       DO UPDATE SET recipe_name = excluded.recipe_name, recipe_data = excluded.recipe_data, image_url = excluded.image_url, note = excluded.note`
-    ).bind(userId, deviceId || "", check_date, meal_type, recipe_name, JSON.stringify(recipe_data || {}), image_url || null, note || null).run();
+       DO UPDATE SET recipe_name = excluded.recipe_name, recipe_data = excluded.recipe_data, image_url = excluded.image_url, note = excluded.note, cost = excluded.cost`
+    ).bind(userId, deviceId || "", check_date, meal_type, recipe_name, JSON.stringify(recipe_data || {}), image_url || null, note || null, cost || 0).run();
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -113,6 +113,7 @@ async function initSqlJs() {
       recipe_data TEXT DEFAULT '{}',
       image_url TEXT,
       note TEXT,
+      cost REAL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   `);

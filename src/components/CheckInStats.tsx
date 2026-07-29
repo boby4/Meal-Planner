@@ -11,7 +11,9 @@ interface Stats {
   totalDays: number;
   streak: number;
   completionRate: number;
-  weekDays: { date: string; count: number }[];
+  totalSpend: number;
+  todaySpend: number;
+  weekDays: { date: string; count: number; spend: number }[];
   mealDistribution: { type: string; count: number }[];
   monthlyTrend: { month: string; days: number }[];
 }
@@ -21,6 +23,8 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
     totalDays: 0,
     streak: 0,
     completionRate: 0,
+    totalSpend: 0,
+    todaySpend: 0,
     weekDays: [],
     mealDistribution: [],
     monthlyTrend: [],
@@ -30,8 +34,8 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
     try {
       const today = new Date();
       const monthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-      // 请求当月数据
       const res = await authFetch(`/api/checkin?month=${monthStr}`);
       if (!res.ok) return;
 
@@ -39,13 +43,16 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
       const checkIns = data.checkIns || [];
 
       const dateCountMap: Record<string, number> = {};
+      const dateSpendMap: Record<string, number> = {};
       for (const record of checkIns) {
         dateCountMap[record.check_date] = (dateCountMap[record.check_date] || 0) + 1;
+        dateSpendMap[record.check_date] = (dateSpendMap[record.check_date] || 0) + (Number(record.cost) || 0);
       }
 
       const totalDays = Object.keys(dateCountMap).length;
+      const totalSpend = Object.values(dateSpendMap).reduce((s, v) => s + v, 0);
+      const todaySpend = dateSpendMap[todayStr] || 0;
 
-      // 连续打卡
       let streak = 0;
       const d = new Date();
       while (true) {
@@ -58,24 +65,25 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         }
       }
 
-      // 本月完成率
       const passedDays = today.getDate();
       const completionRate = passedDays > 0 ? Math.round((totalDays / passedDays) * 100) : 0;
 
-      // 本周数据
       const dayOfWeek = today.getDay();
       const monday = new Date(today);
       monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
 
-      const weekDays: { date: string; count: number }[] = [];
+      const weekDays: { date: string; count: number; spend: number }[] = [];
       for (let i = 0; i < 7; i++) {
         const wd = new Date(monday);
         wd.setDate(monday.getDate() + i);
         const dateStr = `${wd.getFullYear()}-${String(wd.getMonth() + 1).padStart(2, "0")}-${String(wd.getDate()).padStart(2, "0")}`;
-        weekDays.push({ date: dateStr, count: dateCountMap[dateStr] || 0 });
+        weekDays.push({
+          date: dateStr,
+          count: dateCountMap[dateStr] || 0,
+          spend: dateSpendMap[dateStr] || 0,
+        });
       }
 
-      // 餐类型分布
       const mealMap: Record<string, number> = {};
       for (const record of checkIns) {
         mealMap[record.meal_type] = (mealMap[record.meal_type] || 0) + 1;
@@ -86,7 +94,6 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         { type: "dinner", count: mealMap.dinner || 0 },
       ];
 
-      // 月度趋势（请求近3个月数据）
       const monthlyTrend: { month: string; days: number }[] = [];
       for (let i = 2; i >= 0; i--) {
         const m = new Date(today.getFullYear(), today.getMonth() - i, 1);
@@ -94,10 +101,8 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         const label = `${m.getMonth() + 1}月`;
 
         if (i === 0) {
-          // 当月直接用已请求的数据
           monthlyTrend.push({ month: label, days: totalDays });
         } else {
-          // 历史月份单独请求
           try {
             const mRes = await authFetch(`/api/checkin?month=${mStr}`);
             if (mRes.ok) {
@@ -116,7 +121,7 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         }
       }
 
-      setStats({ totalDays, streak, completionRate, weekDays, mealDistribution, monthlyTrend });
+      setStats({ totalDays, streak, completionRate, totalSpend, todaySpend, weekDays, mealDistribution, monthlyTrend });
     } catch { /* ignore */ }
   }, [authFetch]);
 
@@ -135,7 +140,7 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
       {/* 数据卡片 */}
       <div className="bg-white rounded-2xl p-4 shadow-sm">
         <h3 className="font-bold text-gray-800 mb-3">本月统计</h3>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 mb-3">
           <div className="text-center">
             <p className="text-2xl font-bold text-[#FF6B35]">{stats.totalDays}</p>
             <p className="text-xs text-gray-400">打卡天数</p>
@@ -144,9 +149,19 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
             <p className="text-2xl font-bold text-[#FF6B35]">{stats.streak}</p>
             <p className="text-xs text-gray-400">连续打卡</p>
           </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3 pt-3 border-t border-gray-50">
           <div className="text-center">
-            <p className="text-2xl font-bold text-[#FF6B35]">{stats.completionRate}%</p>
-            <p className="text-xs text-gray-400">完成率</p>
+            <p className="text-lg font-bold text-orange-500">¥{stats.totalSpend.toFixed(0)}</p>
+            <p className="text-[10px] text-gray-400">本月花费</p>
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-bold text-orange-500">¥{stats.todaySpend.toFixed(0)}</p>
+            <p className="text-[10px] text-gray-400">今日花费</p>
+          </div>
+          <div className="text-center">
+            <p className="text-lg font-bold text-orange-500">{stats.completionRate}%</p>
+            <p className="text-[10px] text-gray-400">完成率</p>
           </div>
         </div>
       </div>
@@ -180,6 +195,13 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
               </div>
             );
           })}
+        </div>
+        <div className="flex justify-between mt-2 px-1">
+          {stats.weekDays.map((day) => (
+            <span key={day.date} className="flex-1 text-center text-[9px] text-gray-400">
+              {day.spend > 0 ? `¥${day.spend}` : ""}
+            </span>
+          ))}
         </div>
       </div>
 

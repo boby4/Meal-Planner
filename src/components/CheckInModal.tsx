@@ -9,6 +9,7 @@ interface CheckInRecord {
   recipe_name: string;
   recipe_data?: string;
   note?: string;
+  cost?: number;
 }
 
 interface FavoriteItem {
@@ -35,6 +36,7 @@ export default function CheckInModal({ date, onClose, onUpdate, authFetch }: Che
   const [editingMeal, setEditingMeal] = useState<string | null>(null);
   const [recipeName, setRecipeName] = useState("");
   const [note, setNote] = useState("");
+  const [cost, setCost] = useState("");
   const [saving, setSaving] = useState(false);
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [showFavorites, setShowFavorites] = useState(false);
@@ -90,12 +92,14 @@ export default function CheckInModal({ date, onClose, onUpdate, authFetch }: Che
           meal_type: mealType,
           recipe_name: recipeName.trim(),
           note: note.trim(),
+          cost: parseFloat(cost) || 0,
         }),
       });
       if (res.ok) {
         setEditingMeal(null);
         setRecipeName("");
         setNote("");
+        setCost("");
         setShowFavorites(false);
         await loadRecords();
         onUpdate();
@@ -173,7 +177,12 @@ export default function CheckInModal({ date, onClose, onUpdate, authFetch }: Che
                       <div className="flex items-center justify-between bg-white rounded-lg p-2">
                         <div>
                           <p className="text-sm font-medium text-gray-800">{record.recipe_name}</p>
-                          {record.note && <p className="text-xs text-gray-400 mt-0.5">{record.note}</p>}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {record.cost && record.cost > 0 && (
+                              <span className="text-xs font-medium text-orange-500">¥{record.cost}</span>
+                            )}
+                            {record.note && <p className="text-xs text-gray-400">{record.note}</p>}
+                          </div>
                         </div>
                         <button
                           onClick={() => handleDelete(record.id)}
@@ -238,9 +247,18 @@ export default function CheckInModal({ date, onClose, onUpdate, authFetch }: Che
                           placeholder="备注（可选）"
                           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FF6B35]"
                         />
+                        <input
+                          type="number"
+                          value={cost}
+                          onChange={(e) => setCost(e.target.value)}
+                          placeholder="花费金额（元，可选）"
+                          min="0"
+                          step="0.01"
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#FF6B35]"
+                        />
                         <div className="flex gap-2">
                           <button
-                            onClick={() => { setEditingMeal(null); setRecipeName(""); setNote(""); setShowFavorites(false); }}
+                            onClick={() => { setEditingMeal(null); setRecipeName(""); setNote(""); setCost(""); setShowFavorites(false); }}
                             className="flex-1 py-2 text-sm text-gray-500 bg-gray-100 rounded-lg"
                           >
                             取消

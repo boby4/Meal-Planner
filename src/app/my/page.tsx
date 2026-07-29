@@ -21,6 +21,7 @@ interface CheckInRecord {
   meal_type: string;
   recipe_name: string;
   note?: string;
+  cost?: number;
 }
 
 interface ShoppingItem {
@@ -362,9 +363,14 @@ export default function MyPage() {
                               <p className="text-sm font-medium text-gray-800 truncate">{record.recipe_name}</p>
                               <p className="text-[11px] text-gray-400">{meal.label}</p>
                             </div>
-                            {record.note && (
-                              <span className="text-[11px] text-gray-400 truncate max-w-[80px]">{record.note}</span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {record.cost && record.cost > 0 && (
+                                <span className="text-[11px] font-medium text-orange-500">¥{record.cost}</span>
+                              )}
+                              {record.note && (
+                                <span className="text-[11px] text-gray-400 truncate max-w-[60px]">{record.note}</span>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
