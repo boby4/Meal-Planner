@@ -39,7 +39,7 @@ const MEAL_LABEL: Record<string, { icon: string; label: string }> = {
 };
 
 export default function MyPage() {
-  const { user, logout, authFetch, loading: authLoading } = useAuth();
+  const { user, logout, updateUsername, authFetch, loading: authLoading } = useAuth();
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("favorites");
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
@@ -50,6 +50,10 @@ export default function MyPage() {
   const [showExtract, setShowExtract] = useState(false);
   const [selectedRecipes, setSelectedRecipes] = useState<Set<number>>(new Set());
   const [extracting, setExtracting] = useState(false);
+  const [showEditUsername, setShowEditUsername] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
+  const [updatingUsername, setUpdatingUsername] = useState(false);
+  const [usernameError, setUsernameError] = useState("");
 
   const loadFavorites = useCallback(async () => {
     try {
@@ -121,6 +125,33 @@ export default function MyPage() {
   const clearChecked = async () => {
     await authFetch("/api/shopping?clear=true", { method: "DELETE" });
     setShopping((prev) => prev.filter((item) => !item.checked));
+  };
+
+  const handleUpdateUsername = async () => {
+    if (!newUsername.trim()) {
+      setUsernameError("用户名不能为空");
+      return;
+    }
+    if (newUsername.trim().length < 2) {
+      setUsernameError("用户名至少2个字符");
+      return;
+    }
+    if (newUsername.trim().length > 20) {
+      setUsernameError("用户名不能超过20个字符");
+      return;
+    }
+    
+    setUpdatingUsername(true);
+    setUsernameError("");
+    try {
+      await updateUsername(newUsername.trim());
+      setShowEditUsername(false);
+      setNewUsername("");
+    } catch (err) {
+      setUsernameError(err instanceof Error ? err.message : "修改失败");
+    } finally {
+      setUpdatingUsername(false);
+    }
   };
 
   const toggleRecipeSelect = (id: number) => {
@@ -201,7 +232,18 @@ export default function MyPage() {
         <div className="flex-1">
           <h1 className="text-lg font-bold text-gray-900">我的</h1>
           {user && (
-            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+            <button 
+              onClick={() => {
+                setNewUsername(user.username || "");
+                setShowEditUsername(true);
+              }}
+              className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#FF6B35] transition-colors"
+            >
+              <span>{user.username || user.email.split('@')[0]}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+              </svg>
+            </button>
           )}
         </div>
         {user ? (
@@ -221,7 +263,7 @@ export default function MyPage() {
               ⚙️
             </Link>
             <div className="w-8 h-8 rounded-full bg-[#FF6B35] text-white flex items-center justify-center text-xs font-bold">
-              {user.email[0].toUpperCase()}
+              {(user.username || user.email)[0].toUpperCase()}
             </div>
             <button
               onClick={() => { logout(); router.push("/"); }}
@@ -545,6 +587,46 @@ export default function MyPage() {
               className="w-full py-3 rounded-2xl bg-[#FF6B35] hover:bg-[#E55A2B] disabled:bg-gray-200 text-white font-bold transition-all"
             >
               {extracting ? "提取中..." : `提取食材（已选 ${selectedRecipes.size} 道）`}
+            </button>
+          </motion.div>
+        </div>
+      )}
+
+      {/* 修改用户名弹窗 */}
+      {showEditUsername && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => { setShowEditUsername(false); setUsernameError(""); }}>
+          <motion.div
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-t-3xl p-5"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">修改用户名</h3>
+              <button onClick={() => { setShowEditUsername(false); setUsernameError(""); }} className="text-gray-400 text-2xl leading-none">×</button>
+            </div>
+            <div className="mb-4">
+              <input
+                type="text"
+                value={newUsername}
+                onChange={(e) => { setNewUsername(e.target.value); setUsernameError(""); }}
+                placeholder="输入新用户名"
+                minLength={2}
+                maxLength={20}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 focus:border-[#FF6B35] transition-all"
+              />
+              {usernameError && (
+                <p className="text-xs text-red-500 mt-2">{usernameError}</p>
+              )}
+              <p className="text-xs text-gray-400 mt-2">2-20个字符，修改后其他用户将看到你的新用户名</p>
+            </div>
+            <button
+              onClick={handleUpdateUsername}
+              disabled={updatingUsername || !newUsername.trim()}
+              className="w-full py-3 rounded-2xl bg-[#FF6B35] hover:bg-[#E55A2B] disabled:bg-gray-200 text-white font-bold transition-all"
+            >
+              {updatingUsername ? "修改中..." : "确认修改"}
             </button>
           </motion.div>
         </div>

@@ -9,6 +9,7 @@ interface Message {
   id: string;
   userId: number;
   email: string;
+  username: string;
   content: string;
   messageType: 'text' | 'emoji';
   timestamp: number;
@@ -17,6 +18,7 @@ interface Message {
 interface OnlineUser {
   id: number;
   email: string;
+  username: string;
 }
 
 export default function ChatPage() {
@@ -185,8 +187,9 @@ export default function ChatPage() {
     });
   };
 
-  // 获取用户名（邮箱前缀）
-  const getUsername = (email: string) => {
+  // 获取显示名称（优先用户名，其次邮箱前缀）
+  const getDisplayName = (email: string, username?: string) => {
+    if (username && username.trim()) return username;
     return email.split('@')[0];
   };
 
@@ -264,9 +267,9 @@ export default function ChatPage() {
                   className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-medium"
                   style={{ backgroundColor: getAvatarColor(onlineUser.id) }}
                 >
-                  {getUsername(onlineUser.email).charAt(0).toUpperCase()}
+                  {getDisplayName(onlineUser.email, onlineUser.username).charAt(0).toUpperCase()}
                 </div>
-                <span className="text-gray-700 font-medium">{getUsername(onlineUser.email)}</span>
+                <span className="text-gray-700 font-medium">{getDisplayName(onlineUser.email, onlineUser.username)}</span>
               </div>
             ))}
           </div>
@@ -304,10 +307,10 @@ export default function ChatPage() {
                             className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-medium"
                             style={{ backgroundColor: getAvatarColor(message.userId) }}
                           >
-                            {getUsername(message.email).charAt(0).toUpperCase()}
+                            {getDisplayName(message.email, message.username).charAt(0).toUpperCase()}
                           </div>
                           <span className="text-xs font-medium text-gray-700">
-                            {getUsername(message.email)}
+                            {getDisplayName(message.email, message.username)}
                           </span>
                         </>
                       )}

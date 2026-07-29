@@ -11,6 +11,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -22,7 +23,7 @@ export default function LoginPage() {
 
     try {
       if (isRegister) {
-        await register(email, password);
+        await register(email, password, username);
       } else {
         await login(email, password);
       }
@@ -62,6 +63,28 @@ export default function LoginPage() {
 
         {/* 表单 */}
         <form onSubmit={handleSubmit} className="space-y-4">
+          {isRegister && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                用户名
+              </label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                minLength={2}
+                maxLength={20}
+                placeholder="2-20个字符"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 focus:border-[#FF6B35] transition-all"
+              />
+            </motion.div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               邮箱

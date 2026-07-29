@@ -5,6 +5,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 interface User {
   id: number;
   email: string;
+  username: string;
 }
 
 interface AuthContextType {
@@ -12,8 +13,9 @@ interface AuthContextType {
   loading: boolean;
   deviceId: string;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, username?: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateUsername: (username: string) => Promise<void>;
   authFetch: (url: string, options?: RequestInit) => Promise<Response>;
 }
 
@@ -87,11 +89,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, username?: string) => {
       const res = await authFetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "register", email, password }),
+        body: JSON.stringify({ action: "register", email, password, username }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "注册失败");
@@ -114,8 +116,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, [authFetch]);
 
+  const updateUsername = useCallback(
+    async (username: string) => {
+      const res = await authFetch("/api/auth", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "修改失败");
+
+      const updatedUser = { ...user!, username: data.username };
+      localStorage.setItem(USER_KEY, JSON.stringify(updatedUser));
+      setUser(updatedUser);
+    },
+    [authFetch, user]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, loading, deviceId, login, register, logout, authFetch }}>
+    <AuthContext.Provider value={{ user, loading, deviceId, login, register, logout, updateUsername, authFetch }}>
       {children}
     </AuthContext.Provider>
   );

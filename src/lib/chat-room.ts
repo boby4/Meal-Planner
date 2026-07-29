@@ -12,6 +12,7 @@ interface ChatMessage {
   id: string;
   userId: number;
   email: string;
+  username: string;
   content: string;
   messageType: 'text' | 'emoji';
   timestamp: number;
@@ -20,6 +21,7 @@ interface ChatMessage {
 interface UserSession {
   userId: number;
   email: string;
+  username: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,12 +69,13 @@ export class ChatRoom {
       this.state.acceptWebSocket(server);
       
       // 存储用户信息
-      this.sessions.set(server, { userId: user.userId, email: user.email });
+      this.sessions.set(server, { userId: user.userId, email: user.email, username: user.username });
       
       // 发送在线用户列表（给新用户）
       const onlineUsers = Array.from(this.sessions.values()).map(session => ({
         id: session.userId,
-        email: session.email
+        email: session.email,
+        username: session.username
       }));
       server.send(JSON.stringify({
         type: 'online_users',
@@ -82,7 +85,7 @@ export class ChatRoom {
       // 广播用户上线消息（给其他人）
       this.broadcast({
         type: 'user_join',
-        user: { id: user.userId, email: user.email },
+        user: { id: user.userId, email: user.email, username: user.username },
         timestamp: Date.now()
       }, server);
 
@@ -131,7 +134,7 @@ export class ChatRoom {
       this.sessions.delete(ws);
       this.broadcast({
         type: 'user_leave',
-        user: { id: user.userId, email: user.email },
+        user: { id: user.userId, email: user.email, username: user.username },
         timestamp: Date.now()
       });
     }
@@ -164,6 +167,7 @@ export class ChatRoom {
         id: crypto.randomUUID(),
         userId: user.userId,
         email: user.email,
+        username: user.username,
         content: data.content,
         messageType: (data.messageType as 'text' | 'emoji') || 'text',
         timestamp: Date.now()
@@ -266,10 +270,10 @@ export class ChatRoom {
   private async verifyToken(token: string): Promise<UserSession | null> {
     try {
       const session = await this.env.DB.prepare(
-        "SELECT s.user_id, u.email FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > datetime('now')"
-      ).bind(token).first() as { user_id: number; email: string } | null;
+        "SELECT s.user_id, u.email, u.username FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > datetime('now')"
+      ).bind(token).first() as { user_id: number; email: string; username: string } | null;
       
-      return session ? { userId: session.user_id, email: session.email } : null;
+      return session ? { userId: session.user_id, email: session.email, username: session.username || session.email.split('@')[0] } : null;
     } catch (e) {
       console.error('Token verification failed:', e);
       return null;

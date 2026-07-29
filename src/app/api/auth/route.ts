@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { registerUser, loginUser, verifyToken, logoutUser, mergeDeviceData, getAuthFromRequest } from "@/lib/auth";
+import { registerUser, loginUser, verifyToken, logoutUser, mergeDeviceData, getAuthFromRequest, updateUsername } from "@/lib/auth";
 
 /** POST /api/auth - 登录/注册统一入口 */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { action, email, password, device_id } = body;
+    const { action, email, password, username, device_id } = body;
 
     if (!email || !password) {
       return NextResponse.json({ error: "邮箱和密码不能为空" }, { status: 400 });
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     let result;
 
     if (action === "register") {
-      result = await registerUser(email, password);
+      result = await registerUser(email, password, username);
     } else {
       result = await loginUser(email, password);
     }
@@ -71,5 +71,32 @@ export async function DELETE(request: NextRequest) {
   } catch (error) {
     console.error("DELETE /api/auth 错误:", error);
     return NextResponse.json({ error: "退出失败" }, { status: 500 });
+  }
+}
+
+/** PUT /api/auth - 修改用户名 */
+export async function PUT(request: NextRequest) {
+  try {
+    const { userId } = await getAuthFromRequest(request);
+    if (!userId) {
+      return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const { username } = body;
+
+    if (!username) {
+      return NextResponse.json({ error: "用户名不能为空" }, { status: 400 });
+    }
+
+    const result = await updateUsername(userId, username);
+    if (!result.success) {
+      return NextResponse.json({ error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true, username: username.trim() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "修改失败";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
