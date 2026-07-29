@@ -27,13 +27,21 @@ async function handleWebSocket(request: any, env: CloudflareEnv): Promise<any> {
     return new Response('Durable Objects not configured', { status: 500 });
   }
 
+  // 从 URL参数获取 token
+  const url = new URL(request.url);
+  const token = url.searchParams.get('token');
+  if (!token) {
+    return new Response('Missing token', { status: 401 });
+  }
+
   // 获取 Durable Object实例
   const id = env.CHAT_ROOM.idFromName('global-chat-room');
   const stub = env.CHAT_ROOM.get(id);
 
-  // 代理请求到 Durable Object
+  // 代理请求到 Durable Object，将 token放在 Authorization header中
   const doUrl = new URL('/websocket', request.url);
   const headers = new Headers(request.headers);
+  headers.set('Authorization', `Bearer ${token}`);
   
   const doRequest = new Request(doUrl.toString(), {
     method: 'GET',

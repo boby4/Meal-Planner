@@ -49,17 +49,12 @@ export default function ChatPage() {
       if (!token) return;
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/chat/ws`;
+      const wsUrl = `${protocol}//${window.location.host}/api/chat/ws?token=${encodeURIComponent(token)}`;
       
       const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
         setIsConnected(true);
-        // 发送认证信息
-        ws.send(JSON.stringify({
-          type: 'auth',
-          token
-        }));
       };
 
       ws.onmessage = (event) => {
