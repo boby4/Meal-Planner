@@ -391,11 +391,22 @@ export default function ChatPage() {
               ref={inputRef}
               type="text"
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={(e) => {
+                if (e.target.value.length <= 200) {
+                  setInputValue(e.target.value);
+                }
+              }}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) sendMessage(); }}
               placeholder="说点什么..."
+              maxLength={200}
               className="flex-1 px-4 py-2.5 bg-gray-100 rounded-xl border-none focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 transition-all text-sm"
             />
+            {/* 字数统计 */}
+            {inputValue.length > 0 && (
+              <span className={`text-xs ${inputValue.length >= 180 ? 'text-orange-500' : 'text-gray-400'}`}>
+                {inputValue.length}/200
+              </span>
+            )}
             <button
               onClick={sendMessage}
               disabled={!inputValue.trim() || !isConnected}

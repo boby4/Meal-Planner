@@ -190,10 +190,10 @@ export class ChatRoom {
         return;
       }
 
-      if (data.content.length > 1000) {
+      if (data.content.length > 200) {
         ws.send(JSON.stringify({
           type: 'error',
-          message: '消息长度不能超过1000字符'
+          message: '消息长度不能超过200字符'
         }));
         return;
       }
