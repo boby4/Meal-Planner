@@ -139,7 +139,14 @@ export default function ChatPage() {
   };
 
   const sendMessage = useCallback(() => {
-    if (!inputValue.trim() || !wsRef.current || !user) return;
+    if (!inputValue.trim() || !user) return;
+
+    // 检查 WebSocket 是否处于 OPEN 状态
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.warn('WebSocket is not open, attempting to reconnect...');
+      connectWebSocket();
+      return;
+    }
 
     const message = {
       type: 'message',
@@ -147,10 +154,16 @@ export default function ChatPage() {
       messageType: 'text' as const
     };
 
-    wsRef.current.send(JSON.stringify(message));
-    setInputValue('');
-    setShowEmojiPicker(false);
-  }, [inputValue, user]);
+    try {
+      wsRef.current.send(JSON.stringify(message));
+      setInputValue('');
+      setShowEmojiPicker(false);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // 尝试重连
+      connectWebSocket();
+    }
+  }, [inputValue, user, connectWebSocket]);
 
   // 选择表情插入到输入框
   const insertEmoji = useCallback((emoji: string) => {
