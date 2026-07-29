@@ -69,7 +69,17 @@ export class ChatRoom {
       // 存储用户信息
       this.sessions.set(server, { userId: user.userId, email: user.email });
       
-      // 广播用户上线消息
+      // 发送在线用户列表（给新用户）
+      const onlineUsers = Array.from(this.sessions.values()).map(session => ({
+        id: session.userId,
+        email: session.email
+      }));
+      server.send(JSON.stringify({
+        type: 'online_users',
+        users: onlineUsers
+      }));
+
+      // 广播用户上线消息（给其他人）
       this.broadcast({
         type: 'user_join',
         user: { id: user.userId, email: user.email },
