@@ -208,12 +208,14 @@ export class ChatRoom {
         timestamp: Date.now()
       };
 
+      // 先广播消息（实时性优先）
       this.broadcast({
         type: 'new_message',
         message
       });
 
-      await this.saveMessageToKV(message);
+      // 异步保存到存储（不阻塞广播）
+      this.saveMessageToKV(message).catch(console.error);
       this.archiveMessageToD1(message).catch(console.error);
     }
   }

@@ -32,7 +32,6 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const isInitialConnect = useRef(true);
 
   // 常用表情列表
   const commonEmojis = [
@@ -46,7 +45,7 @@ export default function ChatPage() {
 
   // 连接 WebSocket
   const connectWebSocket = useCallback(async () => {
-    if (!user) return;
+    if (!user || wsRef.current) return;
 
     try {
       const token = localStorage.getItem('meal_planner_token');
@@ -59,7 +58,6 @@ export default function ChatPage() {
       
       ws.onopen = () => {
         setIsConnected(true);
-        isInitialConnect.current = false;
       };
 
       ws.onmessage = (event) => {
@@ -73,9 +71,10 @@ export default function ChatPage() {
 
       ws.onclose = (event) => {
         setIsConnected(false);
-        // 重连时不清空在线用户列表，保持最后的状态
+        wsRef.current = null;
+        // 自动重连，不显示状态
         if (event.code !== 1008) {
-          reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
+          reconnectTimeoutRef.current = setTimeout(connectWebSocket, 2000);
         }
       };
 
@@ -96,7 +95,10 @@ export default function ChatPage() {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-      wsRef.current?.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [connectWebSocket]);
 
@@ -127,7 +129,7 @@ export default function ChatPage() {
         setOnlineUsers(prev => prev.filter(u => u.id !== data.user?.id));
         break;
       case 'online_users':
-        // 收到完整的在线用户列表，直接替换（去重）
+        // 收到完整的在线用户列表，直接替换
         setOnlineUsers(data.users || []);
         break;
       case 'error':
@@ -153,7 +155,6 @@ export default function ChatPage() {
   // 选择表情插入到输入框
   const insertEmoji = useCallback((emoji: string) => {
     setInputValue(prev => prev + emoji);
-    // 不关闭表情选择器，方便连续选择
   }, []);
 
   // 自动滚动到底部
@@ -224,9 +225,9 @@ export default function ChatPage() {
           <div>
             <h1 className="text-lg font-bold text-gray-900">💬 厨房闲聊</h1>
             <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'}`} />
               <span className="text-xs text-gray-500">
-                {isConnected ? `在线 ${onlineUsers.length} 人` : (isInitialConnect.current ? '连接中...' : '已断开，重连中...')}
+                {isConnected ? `在线 ${onlineUsers.length} 人` : '在线 0 人'}
               </span>
             </div>
           </div>
@@ -241,7 +242,7 @@ export default function ChatPage() {
         </div>
         
         {/* 在线用户列表 - 横向滚动 */}
-        {onlineUsers.length > 1 && (
+        {isConnected && onlineUsers.length > 1 && (
           <div className="mt-2 flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
             {onlineUsers.map((onlineUser) => (
               <div 
