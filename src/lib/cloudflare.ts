@@ -8,6 +8,7 @@ interface CloudflareEnv {
   RECIPE_CACHE: import("@cloudflare/workers-types").KVNamespace;
   RECIPE_DATA: import("@cloudflare/workers-types").R2Bucket;
   DB: import("@cloudflare/workers-types").D1Database;
+  CHAT_ROOM?: import("@cloudflare/workers-types").DurableObjectNamespace;
 }
 
 // ============================================================
@@ -121,6 +122,18 @@ async function initSqlJs() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_check_in_date
     ON check_ins(user_id, check_date, meal_type)
   `);
+  
+  db.run(`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      message_type TEXT DEFAULT 'text',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at)`);
 
   _sqlJsDB = db;
   _sqlJsReady = true;
@@ -287,6 +300,7 @@ async function initLocalEnv(): Promise<CloudflareEnv> {
     DB: new LocalD1Database(db) as any,
     RECIPE_CACHE: new LocalKVStore() as any,
     RECIPE_DATA: new LocalR2Bucket() as any,
+    // CHAT_ROOM 在本地开发时不可用，需要部署到 Cloudflare
   };
   return localEnv;
 }

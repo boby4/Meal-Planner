@@ -285,6 +285,20 @@ export default function HomePage() {
               </button>
             </motion.div>
 
+            {/* 厨房闲聊入口 */}
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
+              <button
+                onClick={() => router.push("/chat")}
+                className="w-full p-4 rounded-2xl bg-white border border-gray-100 shadow-lg shadow-gray-100/50 text-left hover:bg-gray-50 transition-all active:scale-95 flex items-center gap-3"
+              >
+                <span className="text-2xl">💬</span>
+                <div>
+                  <p className="font-bold text-sm text-gray-900">厨房闲聊</p>
+                  <p className="text-xs text-gray-400 mt-0.5">和吃货们聊聊美食心得</p>
+                </div>
+              </button>
+            </motion.div>
+
             {/* 个性化推荐提示 */}
             {preferences.diet_goal !== "none" && (
               <motion.div

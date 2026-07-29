@@ -23,3 +23,13 @@ bucket_name = "xiachufangdata"
 binding = "DB"
 database_name = "meal-planner-db"
 database_id = "6756250a-25be-4c07-8548-e9de2d4ae6f4"
+
+# Durable Objects（聊天室）
+[[durable_objects.bindings]]
+name = "CHAT_ROOM"
+class_name = "ChatRoom"
+
+# Durable Objects 迁移配置
+[[migrations]]
+tag = "v1"
+new_classes = ["ChatRoom"]
