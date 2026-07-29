@@ -13,6 +13,48 @@ import { default as handler } from "./.open-next/worker.js";
 // 导出 ChatRoom Durable Object
 export { ChatRoom } from "./src/lib/chat-room";
 
+// 处理 WebSocket升级请求
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function handleWebSocket(request: any, env: CloudflareEnv): Promise<any> {
+  // 检查是否是 WebSocket升级请求
+  const upgradeHeader = request.headers.get('Upgrade');
+  if (!upgradeHeader || upgradeHeader !== 'websocket') {
+    return new Response('Expected WebSocket upgrade', { status: 426 });
+  }
+
+  // 检查 Durable Object绑定是否存在
+  if (!env.CHAT_ROOM) {
+    return new Response('Durable Objects not configured', { status: 500 });
+  }
+
+  // 获取 Durable Object实例
+  const id = env.CHAT_ROOM.idFromName('global-chat-room');
+  const stub = env.CHAT_ROOM.get(id);
+
+  // 代理请求到 Durable Object
+  const doUrl = new URL('/websocket', request.url);
+  const headers = new Headers(request.headers);
+  
+  const doRequest = new Request(doUrl.toString(), {
+    method: 'GET',
+    headers,
+  });
+
+  // @ts-ignore - Durable Object fetch returns a special Response with webSocket
+  return stub.fetch(doRequest);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default {
-  fetch: handler.fetch,
+  fetch: async (request: any, env: CloudflareEnv, ctx: any) => {
+    const url = new URL(request.url);
+    
+    // 处理 WebSocket连接
+    if (url.pathname === '/api/chat/ws') {
+      return handleWebSocket(request, env);
+    }
+    
+    // 其他请求交给 Next.js处理
+    return handler.fetch(request, env, ctx);
+  },
 } satisfies ExportedHandler<CloudflareEnv>;
