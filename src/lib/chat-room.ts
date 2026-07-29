@@ -3,11 +3,16 @@
  * 管理 WebSocket 连接、消息广播、在线用户列表
  */
 
-import { WebSocketPair as CFWebSocketPair } from "@cloudflare/workers-types";
-
 interface Env {
   RECIPE_CACHE: import("@cloudflare/workers-types").KVNamespace;
   DB: import("@cloudflare/workers-types").D1Database;
+}
+
+// WebSocketPair 是 Cloudflare Workers 全局类，不需要导入
+declare class WebSocketPair {
+  constructor();
+  0: import("@cloudflare/workers-types").WebSocket;
+  1: import("@cloudflare/workers-types").WebSocket;
 }
 
 interface ChatMessage {
@@ -40,7 +45,7 @@ export class ChatRoom {
     
     if (url.pathname === '/websocket') {
       // 处理 WebSocket 连接
-      const pair = new CFWebSocketPair();
+      const pair = new WebSocketPair();
       await this.handleWebSocket(pair[1], request);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return new Response(null, { status: 101, webSocket: pair[0] } as any);
