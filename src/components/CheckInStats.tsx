@@ -12,6 +12,8 @@ interface Stats {
   streak: number;
   completionRate: number;
   weekDays: { date: string; count: number }[];
+  mealDistribution: { type: string; count: number }[];
+  monthlyTrend: { month: string; days: number }[];
 }
 
 export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProps) {
@@ -20,6 +22,8 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
     streak: 0,
     completionRate: 0,
     weekDays: [],
+    mealDistribution: [],
+    monthlyTrend: [],
   });
 
   const loadStats = useCallback(async () => {
@@ -33,16 +37,13 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
       const data = await res.json();
       const checkIns = data.checkIns || [];
 
-      // 按日期分组统计每日打卡餐数
       const dateCountMap: Record<string, number> = {};
       for (const record of checkIns) {
         dateCountMap[record.check_date] = (dateCountMap[record.check_date] || 0) + 1;
       }
 
-      // 总打卡天数
       const totalDays = Object.keys(dateCountMap).length;
 
-      // 连续打卡天数（从今天往前数）
       let streak = 0;
       const d = new Date();
       while (true) {
@@ -55,12 +56,9 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         }
       }
 
-      // 本月完成率（已过天数中打卡天数占比）
-      const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
       const passedDays = today.getDate();
       const completionRate = passedDays > 0 ? Math.round((totalDays / passedDays) * 100) : 0;
 
-      // 本周数据（周一到周日）
       const dayOfWeek = today.getDay();
       const monday = new Date(today);
       monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
@@ -73,9 +71,27 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         weekDays.push({ date: dateStr, count: dateCountMap[dateStr] || 0 });
       }
 
-      setStats({ totalDays, streak, completionRate, weekDays });
+      const mealMap: Record<string, number> = {};
+      for (const record of checkIns) {
+        mealMap[record.meal_type] = (mealMap[record.meal_type] || 0) + 1;
+      }
+      const mealDistribution = [
+        { type: "breakfast", count: mealMap.breakfast || 0 },
+        { type: "lunch", count: mealMap.lunch || 0 },
+        { type: "dinner", count: mealMap.dinner || 0 },
+      ];
+
+      const monthlyTrend: { month: string; days: number }[] = [];
+      for (let i = 2; i >= 0; i--) {
+        const m = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const mStr = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, "0")}`;
+        const label = `${m.getMonth() + 1}月`;
+        monthlyTrend.push({ month: label, days: 0 });
+      }
+
+      setStats({ totalDays, streak, completionRate, weekDays, mealDistribution, monthlyTrend });
     } catch { /* ignore */ }
-  }, []);
+  }, [authFetch]);
 
   useEffect(() => {
     loadStats();
@@ -84,30 +100,33 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
   const dayLabels = ["一", "二", "三", "四", "五", "六", "日"];
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const mealLabels: Record<string, string> = { breakfast: "🌅 早餐", lunch: "☀️ 午餐", dinner: "🌙 晚餐" };
+  const totalMeals = stats.mealDistribution.reduce((s, m) => s + m.count, 0) || 1;
 
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-sm">
-      <h3 className="font-bold text-gray-800 mb-3">本月统计</h3>
-
+    <div className="space-y-4">
       {/* 数据卡片 */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <div className="text-center">
-          <p className="text-2xl font-bold text-[#FF6B35]">{stats.totalDays}</p>
-          <p className="text-xs text-gray-400">打卡天数</p>
-        </div>
-        <div className="text-center">
-          <p className="text-2xl font-bold text-[#FF6B35]">{stats.streak}</p>
-          <p className="text-xs text-gray-400">连续打卡</p>
-        </div>
-        <div className="text-center">
-          <p className="text-2xl font-bold text-[#FF6B35]">{stats.completionRate}%</p>
-          <p className="text-xs text-gray-400">完成率</p>
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <h3 className="font-bold text-gray-800 mb-3">本月统计</h3>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="text-center">
+            <p className="text-2xl font-bold text-[#FF6B35]">{stats.totalDays}</p>
+            <p className="text-xs text-gray-400">打卡天数</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-[#FF6B35]">{stats.streak}</p>
+            <p className="text-xs text-gray-400">连续打卡</p>
+          </div>
+          <div className="text-center">
+            <p className="text-2xl font-bold text-[#FF6B35]">{stats.completionRate}%</p>
+            <p className="text-xs text-gray-400">完成率</p>
+          </div>
         </div>
       </div>
 
       {/* 本周柱状图 */}
-      <div>
-        <p className="text-sm text-gray-500 mb-2">本周打卡</p>
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <p className="text-sm font-bold text-gray-800 mb-3">本周打卡</p>
         <div className="flex items-end justify-between gap-1 h-16">
           {stats.weekDays.map((day, idx) => {
             const height = Math.max(4, (day.count / 3) * 48);
@@ -130,6 +149,55 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
                 </div>
                 <span className={`text-[10px] ${isToday ? "text-[#FF6B35] font-bold" : "text-gray-400"}`}>
                   {dayLabels[idx]}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 餐类型分布 */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <p className="text-sm font-bold text-gray-800 mb-3">用餐分布</p>
+        <div className="space-y-3">
+          {stats.mealDistribution.map((meal) => {
+            const pct = totalMeals > 0 ? Math.round((meal.count / totalMeals) * 100) : 0;
+            return (
+              <div key={meal.type}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm text-gray-600">{mealLabels[meal.type]}</span>
+                  <span className="text-sm font-bold text-gray-800">{meal.count}次 <span className="text-xs text-gray-400">({pct}%)</span></span>
+                </div>
+                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#FF6B35] to-orange-400 rounded-full transition-all"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 本月趋势（近3个月） */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <p className="text-sm font-bold text-gray-800 mb-3">月度趋势</p>
+        <div className="flex items-end justify-around gap-3 h-20">
+          {stats.monthlyTrend.map((m, idx) => {
+            const isCurrent = idx === stats.monthlyTrend.length - 1;
+            const height = Math.max(8, (m.days / 30) * 64);
+            return (
+              <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
+                <span className="text-[10px] text-gray-500 font-medium">{m.days}天</span>
+                <div className="w-full flex justify-center">
+                  <div
+                    className={`w-8 rounded-t ${isCurrent ? "bg-[#FF6B35]" : "bg-[#FF6B35]/40"}`}
+                    style={{ height: `${height}px` }}
+                  />
+                </div>
+                <span className={`text-xs ${isCurrent ? "text-[#FF6B35] font-bold" : "text-gray-400"}`}>
+                  {m.month}
                 </span>
               </div>
             );

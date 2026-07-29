@@ -46,6 +46,9 @@ export default function MyPage() {
   const [shopping, setShopping] = useState<ShoppingItem[]>([]);
   const [newItem, setNewItem] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showExtract, setShowExtract] = useState(false);
+  const [selectedRecipes, setSelectedRecipes] = useState<Set<number>>(new Set());
+  const [extracting, setExtracting] = useState(false);
 
   const loadFavorites = useCallback(async () => {
     try {
@@ -117,6 +120,41 @@ export default function MyPage() {
   const clearChecked = async () => {
     await authFetch("/api/shopping?clear=true", { method: "DELETE" });
     setShopping((prev) => prev.filter((item) => !item.checked));
+  };
+
+  const toggleRecipeSelect = (id: number) => {
+    setSelectedRecipes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const extractIngredients = async () => {
+    const names = favorites.filter((f) => selectedRecipes.has(f.id)).map((f) => f.recipe_name);
+    if (!names.length) return;
+    setExtracting(true);
+    try {
+      const res = await authFetch("/api/shopping/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recipeNames: names }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        for (const ing of data.ingredients || []) {
+          await authFetch("/api/shopping", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ item_name: ing.name, amount: ing.amount, category: ing.category, related_recipe: names.join("、") }),
+          });
+        }
+        setShowExtract(false);
+        setSelectedRecipes(new Set());
+        loadShopping();
+      }
+    } catch { /* ignore */ }
+    setExtracting(false);
   };
 
   // 按日期分组打卡记录
@@ -358,6 +396,18 @@ export default function MyPage() {
                 </button>
               </motion.div>
 
+              {/* 智能提取按钮 */}
+              {favorites.length > 0 && (
+                <motion.button
+                  variants={fadeUp}
+                  onClick={() => setShowExtract(true)}
+                  className="w-full py-3 rounded-2xl border-2 border-dashed border-orange-200 text-[#FF6B35] text-sm font-medium hover:bg-orange-50 transition-colors flex items-center justify-center gap-2"
+                >
+                  <span>🧠</span>
+                  <span>从收藏菜谱智能提取食材</span>
+                </motion.button>
+              )}
+
               {/* 进度条 */}
               {shoppingTotal > 0 && (
                 <motion.div variants={fadeUp} className="mb-3">
@@ -443,7 +493,57 @@ export default function MyPage() {
           )}
         </motion.div>
       </AnimatePresence>
-        </>
+
+      {/* 智能提取弹窗 */}
+      {showExtract && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={() => setShowExtract(false)}>
+          <motion.div
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white rounded-t-3xl p-5 max-h-[70vh] flex flex-col"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">选择菜谱提取食材</h3>
+              <button onClick={() => setShowExtract(false)} className="text-gray-400 text-2xl leading-none">×</button>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">选择要做的菜，AI 自动提取需要购买的食材</p>
+            <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+              {favorites.map((fav) => (
+                <button
+                  key={fav.id}
+                  onClick={() => toggleRecipeSelect(fav.id)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                    selectedRecipes.has(fav.id)
+                      ? "border-[#FF6B35] bg-orange-50"
+                      : "border-gray-100 bg-white hover:border-gray-200"
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                    selectedRecipes.has(fav.id) ? "bg-[#FF6B35] border-[#FF6B35]" : "border-gray-300"
+                  }`}>
+                    {selectedRecipes.has(fav.id) && (
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                        <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </div>
+                  <span className="text-sm text-gray-800 truncate">{fav.recipe_name}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={extractIngredients}
+              disabled={selectedRecipes.size === 0 || extracting}
+              className="w-full py-3 rounded-2xl bg-[#FF6B35] hover:bg-[#E55A2B] disabled:bg-gray-200 text-white font-bold transition-all"
+            >
+              {extracting ? "提取中..." : `提取食材（已选 ${selectedRecipes.size} 道）`}
+            </button>
+          </motion.div>
+        </div>
+      )}
+      </>
       )}
     </main>
   );
