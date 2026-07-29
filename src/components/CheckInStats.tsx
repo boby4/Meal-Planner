@@ -31,6 +31,7 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
       const today = new Date();
       const monthStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
 
+      // 请求当月数据
       const res = await authFetch(`/api/checkin?month=${monthStr}`);
       if (!res.ok) return;
 
@@ -44,6 +45,7 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
 
       const totalDays = Object.keys(dateCountMap).length;
 
+      // 连续打卡
       let streak = 0;
       const d = new Date();
       while (true) {
@@ -56,21 +58,24 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         }
       }
 
+      // 本月完成率
       const passedDays = today.getDate();
       const completionRate = passedDays > 0 ? Math.round((totalDays / passedDays) * 100) : 0;
 
+      // 本周数据
       const dayOfWeek = today.getDay();
       const monday = new Date(today);
       monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
 
       const weekDays: { date: string; count: number }[] = [];
       for (let i = 0; i < 7; i++) {
-        const d = new Date(monday);
-        d.setDate(monday.getDate() + i);
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const wd = new Date(monday);
+        wd.setDate(monday.getDate() + i);
+        const dateStr = `${wd.getFullYear()}-${String(wd.getMonth() + 1).padStart(2, "0")}-${String(wd.getDate()).padStart(2, "0")}`;
         weekDays.push({ date: dateStr, count: dateCountMap[dateStr] || 0 });
       }
 
+      // 餐类型分布
       const mealMap: Record<string, number> = {};
       for (const record of checkIns) {
         mealMap[record.meal_type] = (mealMap[record.meal_type] || 0) + 1;
@@ -81,12 +86,34 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         { type: "dinner", count: mealMap.dinner || 0 },
       ];
 
+      // 月度趋势（请求近3个月数据）
       const monthlyTrend: { month: string; days: number }[] = [];
       for (let i = 2; i >= 0; i--) {
         const m = new Date(today.getFullYear(), today.getMonth() - i, 1);
         const mStr = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, "0")}`;
         const label = `${m.getMonth() + 1}月`;
-        monthlyTrend.push({ month: label, days: 0 });
+
+        if (i === 0) {
+          // 当月直接用已请求的数据
+          monthlyTrend.push({ month: label, days: totalDays });
+        } else {
+          // 历史月份单独请求
+          try {
+            const mRes = await authFetch(`/api/checkin?month=${mStr}`);
+            if (mRes.ok) {
+              const mData = await mRes.json();
+              const mDateSet = new Set<string>();
+              for (const r of mData.checkIns || []) {
+                mDateSet.add(r.check_date);
+              }
+              monthlyTrend.push({ month: label, days: mDateSet.size });
+            } else {
+              monthlyTrend.push({ month: label, days: 0 });
+            }
+          } catch {
+            monthlyTrend.push({ month: label, days: 0 });
+          }
+        }
       }
 
       setStats({ totalDays, streak, completionRate, weekDays, mealDistribution, monthlyTrend });
@@ -180,7 +207,7 @@ export default function CheckInStats({ refreshKey, authFetch }: CheckInStatsProp
         </div>
       </div>
 
-      {/* 本月趋势（近3个月） */}
+      {/* 月度趋势 */}
       <div className="bg-white rounded-2xl p-4 shadow-sm">
         <p className="text-sm font-bold text-gray-800 mb-3">月度趋势</p>
         <div className="flex items-end justify-around gap-3 h-20">
