@@ -22,6 +22,7 @@ interface UserSession {
   userId: number;
   email: string;
   username: string;
+  ws: CFWebSocket;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -30,12 +31,16 @@ type CFWebSocket = any;
 export class ChatRoom {
   private state: import("@cloudflare/workers-types").DurableObjectState;
   private env: Env;
-  private sessions: Map<CFWebSocket, UserSession>;
+  // 使用 userId 作为 key，确保同一用户只有一个连接
+  private sessions: Map<number, UserSession>;
+  // WebSocket 到 userId 的反向映射
+  private wsToUserId: Map<CFWebSocket, number>;
 
   constructor(state: import("@cloudflare/workers-types").DurableObjectState, env: Env) {
     this.state = state;
     this.env = env;
     this.sessions = new Map();
+    this.wsToUserId = new Map();
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -68,26 +73,42 @@ export class ChatRoom {
       // 接受 WebSocket连接
       this.state.acceptWebSocket(server);
       
-      // 存储用户信息
-      this.sessions.set(server, { userId: user.userId, email: user.email, username: user.username });
+      // 检查该用户是否已有连接，如果有则关闭旧连接
+      const existingSession = this.sessions.get(user.userId);
+      if (existingSession) {
+        try {
+          existingSession.ws.close(1000, 'New connection opened');
+        } catch (e) {
+          console.error('Failed to close old connection:', e);
+        }
+        this.wsToUserId.delete(existingSession.ws);
+      }
       
-      // 发送在线用户列表（给新用户）
-      const onlineUsers = Array.from(this.sessions.values()).map(session => ({
-        id: session.userId,
-        email: session.email,
-        username: session.username
-      }));
+      // 存储用户信息（使用 userId 作为 key）
+      this.sessions.set(user.userId, { 
+        userId: user.userId, 
+        email: user.email, 
+        username: user.username,
+        ws: server 
+      });
+      this.wsToUserId.set(server, user.userId);
+      
+      // 发送在线用户列表（给新用户，去重）
+      const onlineUsers = this.getUniqueOnlineUsers();
       server.send(JSON.stringify({
         type: 'online_users',
         users: onlineUsers
       }));
 
       // 广播用户上线消息（给其他人）
-      this.broadcast({
-        type: 'user_join',
-        user: { id: user.userId, email: user.email, username: user.username },
-        timestamp: Date.now()
-      }, server);
+      if (!existingSession) {
+        // 只有当用户之前不在线时才广播上线消息
+        this.broadcast({
+          type: 'user_join',
+          user: { id: user.userId, email: user.email, username: user.username },
+          timestamp: Date.now()
+        }, server);
+      }
 
       // 发送最近消息
       const recentMessages = await this.getRecentMessagesFromKV();
@@ -114,7 +135,10 @@ export class ChatRoom {
 
   // WebSocket 消息处理（Durable Object 类方法）
   async webSocketMessage(ws: CFWebSocket, message: string | ArrayBuffer) {
-    const user = this.sessions.get(ws);
+    const userId = this.wsToUserId.get(ws);
+    if (userId === undefined) return;
+    
+    const user = this.sessions.get(userId);
     if (!user) return;
 
     if (typeof message === 'string') {
@@ -129,23 +153,34 @@ export class ChatRoom {
 
   // WebSocket 关闭处理
   async webSocketClose(ws: CFWebSocket) {
-    const user = this.sessions.get(ws);
-    if (user) {
-      this.sessions.delete(ws);
-      this.broadcast({
-        type: 'user_leave',
-        user: { id: user.userId, email: user.email, username: user.username },
-        timestamp: Date.now()
-      });
+    const userId = this.wsToUserId.get(ws);
+    if (userId !== undefined) {
+      const user = this.sessions.get(userId);
+      this.sessions.delete(userId);
+      this.wsToUserId.delete(ws);
+      
+      if (user) {
+        // 检查该用户是否还有其他连接
+        const hasOtherConnection = Array.from(this.wsToUserId.values()).includes(userId);
+        if (!hasOtherConnection) {
+          // 只有当用户完全离线时才广播下线消息
+          this.broadcast({
+            type: 'user_leave',
+            user: { id: user.userId, email: user.email, username: user.username },
+            timestamp: Date.now()
+          });
+        }
+      }
     }
   }
 
   // WebSocket 错误处理
   async webSocketError(ws: CFWebSocket, error: unknown) {
     console.error('WebSocket error:', error);
-    const user = this.sessions.get(ws);
-    if (user) {
-      this.sessions.delete(ws);
+    const userId = this.wsToUserId.get(ws);
+    if (userId !== undefined) {
+      this.sessions.delete(userId);
+      this.wsToUserId.delete(ws);
     }
   }
 
@@ -185,14 +220,34 @@ export class ChatRoom {
 
   private broadcast(message: { type: string; [key: string]: unknown }, excludeWs?: CFWebSocket) {
     const data = JSON.stringify(message);
-    for (const [ws] of this.sessions) {
-      if (ws === excludeWs) continue;
+    for (const [, session] of this.sessions) {
+      if (session.ws === excludeWs) continue;
       try {
-        ws.send(data);
+        session.ws.send(data);
       } catch {
-        this.sessions.delete(ws);
+        this.sessions.delete(session.userId);
+        this.wsToUserId.delete(session.ws);
       }
     }
+  }
+
+  // 获取去重后的在线用户列表
+  private getUniqueOnlineUsers(): { id: number; email: string; username: string }[] {
+    const users: { id: number; email: string; username: string }[] = [];
+    const seen = new Set<number>();
+    
+    for (const [userId, session] of this.sessions) {
+      if (!seen.has(userId)) {
+        seen.add(userId);
+        users.push({
+          id: session.userId,
+          email: session.email,
+          username: session.username
+        });
+      }
+    }
+    
+    return users;
   }
 
   private async saveMessageToKV(message: ChatMessage) {
@@ -242,10 +297,7 @@ export class ChatRoom {
   }
 
   private getOnlineUsers(): Response {
-    const users = Array.from(this.sessions.values()).map(session => ({
-      id: session.userId,
-      email: session.email
-    }));
+    const users = this.getUniqueOnlineUsers();
     
     return new Response(JSON.stringify({ users }), {
       headers: { 'Content-Type': 'application/json' }
@@ -273,7 +325,7 @@ export class ChatRoom {
         "SELECT s.user_id, u.email, u.username FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > datetime('now')"
       ).bind(token).first() as { user_id: number; email: string; username: string } | null;
       
-      return session ? { userId: session.user_id, email: session.email, username: session.username || session.email.split('@')[0] } : null;
+      return session ? { userId: session.user_id, email: session.email, username: session.username || session.email.split('@')[0], ws: null } : null;
     } catch (e) {
       console.error('Token verification failed:', e);
       return null;

@@ -32,6 +32,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const isInitialConnect = useRef(true);
 
   // 常用表情列表
   const commonEmojis = [
@@ -58,6 +59,7 @@ export default function ChatPage() {
       
       ws.onopen = () => {
         setIsConnected(true);
+        isInitialConnect.current = false;
       };
 
       ws.onmessage = (event) => {
@@ -71,7 +73,7 @@ export default function ChatPage() {
 
       ws.onclose = (event) => {
         setIsConnected(false);
-        setOnlineUsers([]);
+        // 重连时不清空在线用户列表，保持最后的状态
         if (event.code !== 1008) {
           reconnectTimeoutRef.current = setTimeout(connectWebSocket, 3000);
         }
@@ -125,7 +127,7 @@ export default function ChatPage() {
         setOnlineUsers(prev => prev.filter(u => u.id !== data.user?.id));
         break;
       case 'online_users':
-        // 收到完整的在线用户列表
+        // 收到完整的在线用户列表，直接替换（去重）
         setOnlineUsers(data.users || []);
         break;
       case 'error':
@@ -148,18 +150,11 @@ export default function ChatPage() {
     setShowEmojiPicker(false);
   }, [inputValue, user]);
 
-  const sendEmoji = useCallback((emoji: string) => {
-    if (!wsRef.current || !user) return;
-
-    const message = {
-      type: 'message',
-      content: emoji,
-      messageType: 'emoji' as const
-    };
-
-    wsRef.current.send(JSON.stringify(message));
-    setShowEmojiPicker(false);
-  }, [user]);
+  // 选择表情插入到输入框
+  const insertEmoji = useCallback((emoji: string) => {
+    setInputValue(prev => prev + emoji);
+    // 不关闭表情选择器，方便连续选择
+  }, []);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -203,16 +198,6 @@ export default function ChatPage() {
     return colors[userId % colors.length];
   };
 
-  // 生成头像背景色（浅色）
-  const getAvatarBgColor = (userId: number) => {
-    const colors = [
-      '#FFE8E8', '#E8F8F5', '#E8F4FD', '#E8F5E9',
-      '#FFF9E6', '#F3E5F5', '#E0F2F1', '#FFF8E1',
-      '#F3E5F5', '#E3F2FD', '#FFF3E0', '#E8F5E9'
-    ];
-    return colors[userId % colors.length];
-  };
-
   if (!user) {
     return (
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-12">
@@ -241,7 +226,7 @@ export default function ChatPage() {
             <div className="flex items-center gap-2">
               <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
               <span className="text-xs text-gray-500">
-                {isConnected ? `在线 ${onlineUsers.length} 人` : '连接中...'}
+                {isConnected ? `在线 ${onlineUsers.length} 人` : (isInitialConnect.current ? '连接中...' : '已断开，重连中...')}
               </span>
             </div>
           </div>
@@ -354,7 +339,7 @@ export default function ChatPage() {
                 {commonEmojis.map((emoji, index) => (
                   <button
                     key={index}
-                    onClick={() => sendEmoji(emoji)}
+                    onClick={() => insertEmoji(emoji)}
                     className="p-2 text-xl hover:bg-gray-100 rounded-lg transition-all active:scale-90"
                   >
                     {emoji}
