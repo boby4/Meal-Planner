@@ -32,6 +32,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 常用表情列表
   const commonEmojis = [
@@ -158,6 +159,8 @@ export default function ChatPage() {
       wsRef.current.send(JSON.stringify(message));
       setInputValue('');
       setShowEmojiPicker(false);
+      // 发送后聚焦输入框
+      inputRef.current?.focus();
     } catch (error) {
       console.error('Failed to send message:', error);
       // 尝试重连
@@ -168,6 +171,8 @@ export default function ChatPage() {
   // 选择表情插入到输入框
   const insertEmoji = useCallback((emoji: string) => {
     setInputValue(prev => prev + emoji);
+    // 插入后聚焦输入框
+    inputRef.current?.focus();
   }, []);
 
   // 自动滚动到底部
@@ -339,64 +344,68 @@ export default function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 表情选择器 */}
-      <AnimatePresence>
-        {showEmojiPicker && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="bg-white border-t border-gray-100"
-          >
-            <div className="p-3">
-              <div className="grid grid-cols-8 gap-1">
-                {commonEmojis.map((emoji, index) => (
-                  <button
-                    key={index}
-                    onClick={() => insertEmoji(emoji)}
-                    className="p-2 text-xl hover:bg-gray-100 rounded-lg transition-all active:scale-90"
-                  >
-                    {emoji}
-                  </button>
-                ))}
+      {/* 底部区域 - 表情选择器 + 输入框 */}
+      <div className="sticky bottom-0 bg-white border-t border-gray-100">
+        {/* 表情选择器 - 在输入框上方展开 */}
+        <AnimatePresence>
+          {showEmojiPicker && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="border-b border-gray-100 overflow-hidden"
+            >
+              <div className="p-3">
+                <div className="grid grid-cols-8 gap-1">
+                  {commonEmojis.map((emoji, index) => (
+                    <button
+                      key={index}
+                      onClick={() => insertEmoji(emoji)}
+                      className="p-2 text-xl hover:bg-gray-100 rounded-lg transition-all active:scale-90"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      {/* 输入区域 */}
-      <div className="sticky bottom-0 bg-white border-t border-gray-100 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className={`p-2.5 rounded-xl transition-all ${
-              showEmojiPicker 
-                ? 'bg-[#FF6B35] text-white' 
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-.464 5.535a1 1 0 10-1.415-1.414 3 3 0 01-4.242 0 1 1 0 00-1.415 1.414 5 5 0 007.072 0z" clipRule="evenodd" />
-            </svg>
-          </button>
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) sendMessage(); }}
-            placeholder="说点什么..."
-            className="flex-1 px-4 py-2.5 bg-gray-100 rounded-xl border-none focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 transition-all text-sm"
-          />
-          <button
-            onClick={sendMessage}
-            disabled={!inputValue.trim() || !isConnected}
-            className="p-2.5 bg-[#FF6B35] text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#E55A2B] transition-all active:scale-95"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-            </svg>
-          </button>
+        {/* 输入区域 */}
+        <div className="px-4 py-3">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+              className={`p-2.5 rounded-xl transition-all ${
+                showEmojiPicker 
+                  ? 'bg-[#FF6B35] text-white' 
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-.464 5.535a1 1 0 10-1.415-1.414 3 3 0 01-4.242 0 1 1 0 00-1.415 1.414 5 5 0 007.072 0z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) sendMessage(); }}
+              placeholder="说点什么..."
+              className="flex-1 px-4 py-2.5 bg-gray-100 rounded-xl border-none focus:outline-none focus:ring-2 focus:ring-[#FF6B35]/30 transition-all text-sm"
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!inputValue.trim() || !isConnected}
+              className="p-2.5 bg-[#FF6B35] text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#E55A2B] transition-all active:scale-95"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     </main>
