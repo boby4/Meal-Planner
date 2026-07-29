@@ -29,7 +29,7 @@ database_id = "6756250a-25be-4c07-8548-e9de2d4ae6f4"
 name = "CHAT_ROOM"
 class_name = "ChatRoom"
 
-# Durable Objects 迁移配置
+# Durable Objects 迁移配置（免费计划必须使用 new_sqlite_classes）
 [[migrations]]
 tag = "v1"
-new_classes = ["ChatRoom"]
+new_sqlite_classes = ["ChatRoom"]
