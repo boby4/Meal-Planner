@@ -243,37 +243,11 @@ export default function ChatPage() {
       return;
     }
 
-    // 扣减积分
-    try {
-      const token = localStorage.getItem('meal_planner_token');
-      const pointsRes = await fetch('/api/points', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ type: 'CHAT_MESSAGE' })
-      });
-
-      if (!pointsRes.ok) {
-        const errorData = await pointsRes.json();
-        if (errorData.error === '积分不足') {
-          showToast('积分不足，无法发送消息！每日签到可获得积分哦～', 'error');
-          return;
-        }
-        throw new Error(errorData.error);
-      }
-      
-      showToast('-1 积分', 'info');
-    } catch (error) {
-      console.error('Points deduction failed:', error);
-      showToast('积分扣减失败，请重试', 'error');
-      return;
-    }
-
+    // 先发送消息（即时响应）
+    const messageContent = inputValue.trim();
     const message = {
       type: 'message',
-      content: inputValue.trim(),
+      content: messageContent,
       messageType: 'text' as const
     };
 
@@ -281,13 +255,34 @@ export default function ChatPage() {
       wsRef.current.send(JSON.stringify(message));
       setInputValue('');
       setShowEmojiPicker(false);
-      // 发送后聚焦输入框
       inputRef.current?.focus();
     } catch (error) {
       console.error('Failed to send message:', error);
-      // 尝试重连
       connectWebSocket();
+      return;
     }
+
+    // 后台扣减积分（不阻塞发送）
+    const token = localStorage.getItem('meal_planner_token');
+    fetch('/api/points', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ type: 'CHAT_MESSAGE' })
+    }).then(async (res) => {
+      if (res.ok) {
+        showToast('-1 积分', 'info');
+      } else {
+        const data = await res.json();
+        if (data.error === '积分不足') {
+          showToast('积分不足，后续消息可能无法发送', 'error');
+        }
+      }
+    }).catch((err) => {
+      console.error('Points deduction failed:', err);
+    });
   }, [inputValue, user, connectWebSocket]);
 
   // 选择表情插入到输入框
