@@ -98,6 +98,7 @@ export default function CheckInModal({ date, onClose, onUpdate, authFetch }: Che
         }),
       });
       if (res.ok) {
+        const data = await res.json();
         setEditingMeal(null);
         setRecipeName("");
         setNote("");
@@ -105,7 +106,11 @@ export default function CheckInModal({ date, onClose, onUpdate, authFetch }: Che
         setShowFavorites(false);
         await loadRecords();
         onUpdate();
-        showToast('🎉 打卡成功！+10 积分', 'success');
+        if (data.pointsEarned > 0) {
+          showToast(`🎉 打卡成功！+${data.pointsEarned} 积分`, 'success');
+        } else {
+          showToast('🎉 打卡成功！', 'success');
+        }
       }
     } catch { /* ignore */ }
     setSaving(false);

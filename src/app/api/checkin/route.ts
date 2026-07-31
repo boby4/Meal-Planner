@@ -74,11 +74,12 @@ export async function POST(request: Request) {
        DO UPDATE SET recipe_name = excluded.recipe_name, recipe_data = excluded.recipe_data, image_url = excluded.image_url, note = excluded.note, cost = excluded.cost`
     ).bind(userId, deviceId || "", check_date, meal_type, recipe_name, JSON.stringify(recipe_data || {}), image_url || null, note || null, cost || 0).run();
 
-    // 打卡成功后赠送积分（仅限已登录用户）
+    // 打卡成功后赠送积分（仅限已登录用户，每天一次）
+    let pointsEarned = 0;
     if (userId) {
       try {
         const pointEnv = await getEnv();
-        if (!pointEnv?.DB) return NextResponse.json({ success: true });
+        if (!pointEnv?.DB) return NextResponse.json({ success: true, pointsEarned: 0 });
         const db = pointEnv.DB;
         
         // 检查今天是否已经获得过签到积分（北京时间）
@@ -107,6 +108,8 @@ export async function POST(request: Request) {
             )
             .bind(userId, rule.points, rule.description)
             .run();
+          
+          pointsEarned = rule.points;
         }
 
         // 检查连续签到奖励（7天，北京时间）
@@ -149,7 +152,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, pointsEarned });
   } catch (error) {
     return handleAPIError(error);
   }
