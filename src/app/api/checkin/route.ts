@@ -81,10 +81,10 @@ export async function POST(request: Request) {
         if (!pointEnv?.DB) return NextResponse.json({ success: true });
         const db = pointEnv.DB;
         
-        // 检查今天是否已经获得过签到积分（通过检查 point_records）
+        // 检查今天是否已经获得过签到积分（北京时间）
         const todayCheckin = await db
           .prepare(
-            "SELECT id FROM point_records WHERE user_id = ? AND type = 'DAILY_CHECKIN' AND date(created_at) = date('now')"
+            "SELECT id FROM point_records WHERE user_id = ? AND type = 'DAILY_CHECKIN' AND date(created_at, '+8 hours') = date('now', '+8 hours')"
           )
           .bind(userId)
           .first();
@@ -109,10 +109,10 @@ export async function POST(request: Request) {
             .run();
         }
 
-        // 检查连续签到奖励（7天）
+        // 检查连续签到奖励（7天，北京时间）
         const consecutiveDays = await db
           .prepare(
-            "SELECT COUNT(DISTINCT check_date) as days FROM check_ins WHERE user_id = ? AND check_date >= date('now', '-7 days')"
+            "SELECT COUNT(DISTINCT check_date) as days FROM check_ins WHERE user_id = ? AND check_date >= date('now', '+8 hours', '-7 days')"
           )
           .bind(userId)
           .first<{ days: number }>();
@@ -120,10 +120,10 @@ export async function POST(request: Request) {
         if (consecutiveDays && consecutiveDays.days >= 7) {
           const bonusRule = POINT_RULES.CONSECUTIVE_7_DAYS;
           
-          // 检查是否已经获得过连续签到奖励
+          // 检查是否已经获得过连续签到奖励（北京时间）
           const existingBonus = await db
             .prepare(
-              "SELECT id FROM point_records WHERE user_id = ? AND type = 'CONSECUTIVE_7_DAYS' AND created_at > date('now', '-7 days')"
+              "SELECT id FROM point_records WHERE user_id = ? AND type = 'CONSECUTIVE_7_DAYS' AND created_at > date('now', '+8 hours', '-7 days')"
             )
             .bind(userId)
             .first();
