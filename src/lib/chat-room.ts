@@ -324,7 +324,7 @@ export class ChatRoom {
   private async verifyToken(token: string): Promise<UserSession | null> {
     try {
       const session = await this.env.DB.prepare(
-        "SELECT s.user_id, u.email, u.username FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > datetime('now')"
+        "SELECT s.user_id, u.email, u.username FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > datetime('now', '+8 hours')"
       ).bind(token).first() as { user_id: number; email: string; username: string } | null;
       
       return session ? { userId: session.user_id, email: session.email, username: session.username || session.email.split('@')[0], ws: null } : null;

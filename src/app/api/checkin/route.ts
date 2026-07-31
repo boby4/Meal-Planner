@@ -95,7 +95,7 @@ export async function POST(request: Request) {
           // 更新积分
           await db
             .prepare(
-              "INSERT INTO user_points (user_id, points, total_earned) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET points = points + ?, total_earned = total_earned + ?, updated_at = CURRENT_TIMESTAMP"
+              "INSERT INTO user_points (user_id, points, total_earned) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET points = points + ?, total_earned = total_earned + ?, updated_at = datetime('now', '+8 hours')"
             )
             .bind(userId, rule.points, rule.points, rule.points, rule.points)
             .run();
@@ -131,7 +131,7 @@ export async function POST(request: Request) {
           if (!existingBonus) {
             await db
               .prepare(
-                "UPDATE user_points SET points = points + ?, total_earned = total_earned + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
+                "UPDATE user_points SET points = points + ?, total_earned = total_earned + ?, updated_at = datetime('now', '+8 hours') WHERE user_id = ?"
               )
               .bind(bonusRule.points, bonusRule.points, userId)
               .run();

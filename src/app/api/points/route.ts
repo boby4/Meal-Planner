@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
 
       await env.DB
         .prepare(
-          "UPDATE user_points SET points = ?, total_earned = ?, total_spent = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
+          "UPDATE user_points SET points = ?, total_earned = ?, total_spent = ?, updated_at = datetime('now', '+8 hours') WHERE user_id = ?"
         )
         .bind(newPoints, newTotalEarned, newTotalSpent, auth.userId)
         .run();
@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
     // 更新积分
     await env.DB
       .prepare(
-        "UPDATE user_points SET points = ?, total_earned = ?, total_spent = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
+        "UPDATE user_points SET points = ?, total_earned = ?, total_spent = ?, updated_at = datetime('now', '+8 hours') WHERE user_id = ?"
       )
       .bind(newPoints, newTotalEarned, newTotalSpent, auth.userId)
       .run();

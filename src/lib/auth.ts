@@ -123,7 +123,7 @@ export async function verifyToken(token: string): Promise<AuthUser | null> {
   if (!env?.DB) return null;
 
   const session = await env.DB.prepare(
-    "SELECT s.user_id, u.email, u.username FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > datetime('now')"
+    "SELECT s.user_id, u.email, u.username FROM sessions s JOIN users u ON s.user_id = u.id WHERE s.token = ? AND s.expires_at > datetime('now', '+8 hours')"
   ).bind(token).first() as { user_id: number; email: string; username: string } | null;
 
   return session ? { id: session.user_id, email: session.email, username: session.username || session.email.split('@')[0] } : null;

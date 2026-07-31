@@ -65,7 +65,7 @@ export async function PUT(request: Request) {
 
     if (existing) {
       await env.DB.prepare(
-        "UPDATE user_preferences SET preferences = ?, updated_at = datetime('now') WHERE id = ?"
+        "UPDATE user_preferences SET preferences = ?, updated_at = datetime('now', '+8 hours') WHERE id = ?"
       ).bind(prefsJson, existing.id).run();
     } else {
       await env.DB.prepare(

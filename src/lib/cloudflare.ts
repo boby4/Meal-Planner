@@ -36,7 +36,7 @@ async function initSqlJs() {
       username TEXT DEFAULT '',
       password_hash TEXT NOT NULL,
       salt TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now', '+8 hours'))
     )
   `);
   db.run(`
@@ -44,7 +44,7 @@ async function initSqlJs() {
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL,
       expires_at TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now', '+8 hours'))
     )
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_session_expires ON sessions(expires_at)`);
@@ -55,7 +55,7 @@ async function initSqlJs() {
       device_id TEXT DEFAULT '',
       recipe_name TEXT NOT NULL,
       recipe_data TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now', '+8 hours'))
     )
   `);
   db.run(`
@@ -66,7 +66,7 @@ async function initSqlJs() {
       recipe_name TEXT NOT NULL,
       recipe_data TEXT,
       source TEXT DEFAULT '',
-      viewed_at TEXT DEFAULT (datetime('now'))
+      viewed_at TEXT DEFAULT (datetime('now', '+8 hours'))
     )
   `);
   db.run(`
@@ -79,7 +79,7 @@ async function initSqlJs() {
       recipe_name TEXT NOT NULL,
       recipe_data TEXT,
       week_start TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now', '+8 hours'))
     )
   `);
   db.run(`
@@ -91,7 +91,7 @@ async function initSqlJs() {
       amount TEXT DEFAULT '',
       checked INTEGER DEFAULT 0,
       related_recipe TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now', '+8 hours'))
     )
   `);
   db.run(`
@@ -100,8 +100,8 @@ async function initSqlJs() {
       user_id INTEGER,
       device_id TEXT DEFAULT '',
       preferences TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+      updated_at TEXT DEFAULT (datetime('now', '+8 hours'))
     )
   `);
   db.run(`
@@ -116,7 +116,7 @@ async function initSqlJs() {
       image_url TEXT,
       note TEXT,
       cost REAL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT (datetime('now', '+8 hours'))
     )
   `);
   db.run(`
@@ -130,7 +130,7 @@ async function initSqlJs() {
       user_id INTEGER NOT NULL,
       content TEXT NOT NULL,
       message_type TEXT DEFAULT 'text',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT (datetime('now', '+8 hours')),
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
@@ -143,8 +143,8 @@ async function initSqlJs() {
       points INTEGER NOT NULL DEFAULT 0,
       total_earned INTEGER NOT NULL DEFAULT 0,
       total_spent INTEGER NOT NULL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT (datetime('now', '+8 hours')),
+      updated_at DATETIME DEFAULT (datetime('now', '+8 hours')),
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
@@ -158,7 +158,7 @@ async function initSqlJs() {
       type TEXT NOT NULL,
       description TEXT NOT NULL,
       related_id TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT (datetime('now', '+8 hours')),
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
@@ -173,7 +173,7 @@ async function initSqlJs() {
       bet_amount INTEGER NOT NULL,
       win_amount INTEGER DEFAULT 0,
       recipe_name TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT (datetime('now', '+8 hours')),
       FOREIGN KEY (user_id) REFERENCES users(id)
     )
   `);
