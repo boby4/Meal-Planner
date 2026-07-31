@@ -106,10 +106,7 @@ export async function loginUser(
   const hash = await hashPassword(password, user.salt);
   if (hash !== user.password_hash) throw new Error("邮箱或密码错误");
 
-  // 清理过期 session
-  await env.DB.prepare("DELETE FROM sessions WHERE expires_at < datetime('now')").run();
-
-  // 创建新 session
+  // 创建新 session（过期 session 清理移到定时任务，不在登录时阻塞）
   const token = generateToken();
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 

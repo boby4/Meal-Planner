@@ -350,45 +350,52 @@ async function initLocalEnv(): Promise<CloudflareEnv> {
 }
 
 // ============================================================
-// 公开 API
+// 公开 API（缓存 require 结果，避免重复加载）
 // ============================================================
 
-/** 获取 Cloudflare 环境变量和 bindings（异步） */
-export async function getEnv(): Promise<CloudflareEnv> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getCloudflareContext } = require("@opennextjs/cloudflare");
-    const { env } = getCloudflareContext();
-    return env as CloudflareEnv;
-  } catch {
-    // 本地开发：使用 sql.js mock
-    if (!localEnvPromise) {
-      localEnvPromise = initLocalEnv();
+let _cloudflareContext: (() => { env: CloudflareEnv }) | null = null;
+let _cloudflareChecked = false;
+let _isCloudflare = false;
+
+function getCloudflareCtx(): { env: CloudflareEnv } | null {
+  if (!_cloudflareChecked) {
+    _cloudflareChecked = true;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require("@opennextjs/cloudflare");
+      _cloudflareContext = mod.getCloudflareContext;
+      _isCloudflare = true;
+    } catch {
+      _isCloudflare = false;
     }
-    return localEnvPromise;
   }
+  if (_isCloudflare && _cloudflareContext) {
+    return _cloudflareContext();
+  }
+  return null;
+}
+
+/** 获取 Cloudflare 环境变量和 bindings */
+export async function getEnv(): Promise<CloudflareEnv> {
+  const ctx = getCloudflareCtx();
+  if (ctx) {
+    return ctx.env as CloudflareEnv;
+  }
+  // 本地开发：使用 sql.js mock
+  if (!localEnvPromise) {
+    localEnvPromise = initLocalEnv();
+  }
+  return localEnvPromise;
 }
 
 /** 检查 KV 是否可用 */
 export function hasKV(): boolean {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getCloudflareContext } = require("@opennextjs/cloudflare");
-    const { env } = getCloudflareContext();
-    return !!env?.RECIPE_CACHE;
-  } catch {
-    return false;
-  }
+  const ctx = getCloudflareCtx();
+  return !!ctx?.env?.RECIPE_CACHE;
 }
 
 /** 检查 D1 是否可用 */
 export function hasD1(): boolean {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getCloudflareContext } = require("@opennextjs/cloudflare");
-    const { env } = getCloudflareContext();
-    return !!env?.DB;
-  } catch {
-    return false;
-  }
+  const ctx = getCloudflareCtx();
+  return !!ctx?.env?.DB;
 }

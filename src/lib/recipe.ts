@@ -5,11 +5,12 @@ import { kvCache, generateCacheKey } from "./cache";
 // ===== 常量 =====
 const CHUNK_COUNT = 21; // chunk_000.json ~ chunk_020.json
 const ESTIMATED_CHUNK_SIZE = 55 * 1024 * 1024; // 约 55MB
-const READ_SIZE = 512 * 1024; // 每次读取 512KB（足够解析 ~800 条菜谱）
+const READ_SIZE = 128 * 1024; // 每次读取 128KB（减少传输时间）
 const MEMORY_CACHE_TTL = 10 * 60 * 1000; // 10 分钟
 const SEARCH_CACHE_TTL = 30 * 60 * 1000; // 搜索缓存 30 分钟
 const INDEX_READ_SIZE = 2 * 1024 * 1024; // 索引每次读 2MB
 const MAX_INDEX_READ = 5 * 1024 * 1024; // 最多读 5MB 索引（避免 CPU 超限）
+const KV_RECIPE_CACHE_TTL = 300; // KV 缓存菜谱 5 分钟
 
 interface CacheEntry {
   data: RecipeSource[];
@@ -351,37 +352,44 @@ async function readFullChunk(chunkIndex: number): Promise<RecipeSource[]> {
 
 // ===== 核心 API =====
 
-/** 加载菜谱数据（缓存 → R2 范围读取） */
+/** 加载菜谱数据（内存缓存 → KV 缓存 → R2 范围读取） */
 async function loadRecipes(): Promise<RecipeSource[]> {
-  // 内存缓存
+  // L1: 内存缓存
   if (memoryCache && Date.now() < memoryCache.expiresAt) {
-    console.log(`[Recipe] 内存缓存命中: ${memoryCache.data.length} 条`);
     return memoryCache.data;
   }
 
   // 避免并发
   if (loadingPromise) {
-    console.log("[Recipe] 复用加载中请求");
     return loadingPromise;
   }
 
   loadingPromise = (async () => {
     try {
-      // 随机选分片，范围读取
       const chunkIndex = Math.floor(Math.random() * CHUNK_COUNT);
-      console.log(`[Recipe] 随机选择分片: ${chunkIndex}`);
+      const kvKey = `recipes:chunk:${chunkIndex}`;
 
+      // L2: KV 缓存
+      const kvCached = await kvCache.get<RecipeSource[]>(kvKey);
+      if (kvCached && kvCached.length > 0) {
+        console.log(`[Recipe] KV 缓存命中: ${kvCached.length} 条`);
+        memoryCache = { data: kvCached, expiresAt: Date.now() + MEMORY_CACHE_TTL };
+        return kvCached;
+      }
+
+      // L3: R2 范围读取
       const data = await readRandomRecipesFromChunk(chunkIndex);
       console.log(`[Recipe] 从 R2 获取: ${data.length} 条`);
 
       if (data.length > 0) {
         memoryCache = { data, expiresAt: Date.now() + MEMORY_CACHE_TTL };
+        // 异步写入 KV（不阻塞返回）
+        kvCache.set(kvKey, data, KV_RECIPE_CACHE_TTL).catch(() => {});
       }
       return data;
     } catch (err) {
       console.error("[Recipe] 加载失败:", err);
       if (memoryCache) {
-        console.log(`[Recipe] 降级使用缓存: ${memoryCache.data.length} 条`);
         return memoryCache.data;
       }
       return [];

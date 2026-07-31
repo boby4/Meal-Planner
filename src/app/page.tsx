@@ -1,19 +1,21 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { FilterPanel } from "@/components/FilterPanel";
-import { IngredientInput } from "@/components/IngredientInput";
-import { PreferencesPanel } from "@/components/PreferencesPanel";
-import { PointsDisplay } from "@/components/PointsDisplay";
 import { useRecommendation } from "@/hooks/useRecommendation";
 import { useMealStore } from "@/stores/useMealStore";
 import { useAuth } from "@/hooks/useAuth";
 import { usePreferences } from "@/hooks/usePreferences";
 import type { UserPreferences } from "@/lib/types";
+
+// 动态导入非首屏组件
+const FilterPanel = lazy(() => import("@/components/FilterPanel").then(mod => ({ default: mod.FilterPanel })));
+const IngredientInput = lazy(() => import("@/components/IngredientInput").then(mod => ({ default: mod.IngredientInput })));
+const PreferencesPanel = lazy(() => import("@/components/PreferencesPanel").then(mod => ({ default: mod.PreferencesPanel })));
+const PointsDisplay = lazy(() => import("@/components/PointsDisplay").then(mod => ({ default: mod.PointsDisplay })));
 
 type HomeView = "main" | "ai" | "ingredient" | "search";
 
@@ -217,11 +219,13 @@ export default function HomePage() {
           animate={{ opacity: 1 }}
           className="fixed inset-0 z-50 bg-[#FFF8F2]"
         >
-          <PreferencesPanel
-            isOnboarding
-            onSave={handleOnboardingSave}
-            onSkip={skipOnboarding}
-          />
+          <Suspense fallback={<div className="flex items-center justify-center h-screen">加载中...</div>}>
+            <PreferencesPanel
+              isOnboarding
+              onSave={handleOnboardingSave}
+              onSkip={skipOnboarding}
+            />
+          </Suspense>
         </motion.div>
       )}
 
@@ -229,7 +233,9 @@ export default function HomePage() {
       <div className="w-full flex justify-end mb-2 gap-2 items-center">
         {user ? (
           <>
-            <PointsDisplay />
+            <Suspense fallback={<div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" />}>
+              <PointsDisplay />
+            </Suspense>
             <Link href="/preferences" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
               ⚙️ 偏好
             </Link>
@@ -429,7 +435,9 @@ export default function HomePage() {
             >
               ← 返回
             </Button>
-            <FilterPanel onSubmit={handleAISubmit} />
+            <Suspense fallback={<div className="p-8 text-center text-gray-400">加载中...</div>}>
+              <FilterPanel onSubmit={handleAISubmit} />
+            </Suspense>
           </motion.div>
         )}
 
@@ -448,7 +456,9 @@ export default function HomePage() {
             >
               ← 返回
             </Button>
-            <IngredientInput onSubmit={handleIngredientSubmit} />
+            <Suspense fallback={<div className="p-8 text-center text-gray-400">加载中...</div>}>
+              <IngredientInput onSubmit={handleIngredientSubmit} />
+            </Suspense>
           </motion.div>
         )}
         {view === "search" && (

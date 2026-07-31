@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { registerUser, loginUser, verifyToken, logoutUser, mergeDeviceData, getAuthFromRequest, updateUsername } from "@/lib/auth";
+import { registerUser, loginUser, verifyToken, logoutUser, mergeDeviceData, updateUsername } from "@/lib/auth";
 import { getEnv } from "@/lib/cloudflare";
 import { POINT_RULES } from "@/app/api/points/route";
 
@@ -65,16 +65,15 @@ export async function POST(request: NextRequest) {
 /** GET /api/auth - 获取当前用户信息 */
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await getAuthFromRequest(request);
+    const authHeader = request.headers.get("Authorization") || "";
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
-    if (!userId) {
+    if (!token) {
       return NextResponse.json({ user: null });
     }
 
-    const authHeader = request.headers.get("Authorization") || "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+    // 只调用一次 verifyToken（内部已做 JOIN 查询）
     const user = await verifyToken(token);
-
     return NextResponse.json({ user });
   } catch {
     return NextResponse.json({ user: null });
