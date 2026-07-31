@@ -207,7 +207,18 @@ export default function ChatPage() {
         break;
       case 'new_message':
         setMessages(prev => {
-          const updated = [...prev, data.message!];
+          const msg = data.message!;
+          // 去重：如果是当前用户的消息，替换乐观更新的临时消息
+          if (msg.userId === user?.id) {
+            const idx = prev.findIndex(m => m.id.startsWith('temp-') && m.content === msg.content && m.userId === msg.userId);
+            if (idx !== -1) {
+              const updated = [...prev];
+              updated[idx] = msg;
+              saveMessagesToCache(updated);
+              return updated;
+            }
+          }
+          const updated = [...prev, msg];
           saveMessagesToCache(updated);
           return updated;
         });
