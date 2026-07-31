@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/hooks/useAuth";
 
 // ============ 常量定义 ============
 
@@ -101,6 +102,16 @@ function formatWan(n: number): string {
   return String(n);
 }
 
+function getTimeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes}分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}小时前`;
+  return `${Math.floor(hours / 24)}天前`;
+}
+
 /** 根据概率决定中奖结果 */
 function rollResult(): ResultType {
   const r = Math.random() * 100;
@@ -137,6 +148,7 @@ interface SpinRecord {
 export default function LotteryPage() {
   const router = useRouter();
   const { showToast } = useToast();
+  const { user } = useAuth();
 
   // Tab 状态
   const [activeTab, setActiveTab] = useState<TabType>("game");
@@ -165,6 +177,8 @@ export default function LotteryPage() {
 
   // 播报
   const [broadcastTab, setBroadcastTab] = useState<"latest" | "big">("latest");
+  // 播报数据
+  const [broadcasts, setBroadcasts] = useState<{resultType: ResultType; betAmount: number; win: number; time: string}[]>([]);
 
   // 动画控制
   const spinTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -178,6 +192,59 @@ export default function LotteryPage() {
       stopTimersRef.current.forEach(clearTimeout);
     };
   }, []);
+
+  // 加载统计数据、记录和播报
+  useEffect(() => {
+    const loadData = async () => {
+      const token = localStorage.getItem('meal_planner_token');
+      if (!token) return;
+
+      try {
+        // 并行加载
+        const [statsRes, recordsRes, broadcastRes] = await Promise.all([
+          fetch('/api/lottery?type=stats', { headers: { 'Authorization': `Bearer ${token}` } }),
+          fetch('/api/lottery', { headers: { 'Authorization': `Bearer ${token}` } }),
+          fetch('/api/lottery?type=broadcast')
+        ]);
+
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          setTotalSpins(stats.total_spins || 0);
+          setTotalBet(stats.total_bet || 0);
+          setTotalWin(stats.total_win || 0);
+          setMaxWin(stats.max_win || 0);
+        }
+
+        if (recordsRes.ok) {
+          const data = await recordsRes.json();
+          setRecords((data || []).map((r: any, i: number) => ({
+            id: r.id || i + 1,
+            grid: generateGrid(),
+            resultType: r.result_type,
+            betAmount: r.bet_amount,
+            winAmount: r.win_amount,
+            recipeName: r.recipe_name,
+            recipeDesc: '摇摇乐推荐',
+            time: new Date(r.created_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+          })));
+        }
+
+        if (broadcastRes.ok) {
+          const data = await broadcastRes.json();
+          setBroadcasts((data || []).map((r: any) => ({
+            resultType: r.result_type,
+            betAmount: r.bet_amount,
+            win: r.win_amount,
+            time: getTimeAgo(r.created_at)
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to load lottery data:', error);
+      }
+    };
+
+    loadData();
+  }, [user]);
 
   /** 获取随机菜谱 */
   const fetchRandomRecipe = useCallback(async (): Promise<{ name: string; desc: string }> => {
@@ -358,6 +425,21 @@ export default function LotteryPage() {
       time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
     };
     setRecords((prev) => [record, ...prev].slice(0, 50));
+
+    // 保存记录到数据库
+    try {
+      const token = localStorage.getItem('meal_planner_token');
+      await fetch('/api/lottery', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ resultType, betAmount, winAmount, recipeName: recipe.name })
+      });
+    } catch (error) {
+      console.error('Failed to save lottery record:', error);
+    }
   }, [isSpinning, selectedCell, grid, betAmount, maxWin, evaluateGrid, fetchRandomRecipe]);
 
   /** 自动摇 */
@@ -695,14 +777,14 @@ export default function LotteryPage() {
                   </div>
                   <div className="space-y-1.5 max-h-[80px] overflow-hidden">
                     {(broadcastTab === "big"
-                      ? MOCK_BROADCASTS.filter((b) => b.resultType !== "small")
-                      : MOCK_BROADCASTS
+                      ? broadcasts.filter((b) => b.resultType !== "small")
+                      : broadcasts
                     )
                       .slice(0, 3)
                       .map((b, i) => (
                         <div key={i} className="flex items-center gap-1 text-[11px] text-gray-500">
                           <span>{RESULT_INFO[b.resultType].emoji}</span>
-                          <span className="font-medium text-gray-700">{b.nickname}</span>
+                          <span className="font-medium text-gray-700">匿名用户</span>
                           <span>
                             下注{formatWan(b.betAmount)}，赢{formatWan(b.win)}
                           </span>

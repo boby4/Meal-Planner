@@ -164,6 +164,21 @@ async function initSqlJs() {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_point_records_user ON point_records(user_id, created_at DESC)`);
 
+  // 摇摇乐记录表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS lotto_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      result_type TEXT NOT NULL,
+      bet_amount INTEGER NOT NULL,
+      win_amount INTEGER DEFAULT 0,
+      recipe_name TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_lotto_records_user ON lotto_records(user_id, created_at DESC)`);
+
   _sqlJsDB = db;
   _sqlJsReady = true;
   console.log("[LocalD1] sql.js 内存数据库已初始化");
