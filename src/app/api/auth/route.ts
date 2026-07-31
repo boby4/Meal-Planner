@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { registerUser, loginUser, verifyToken, logoutUser, mergeDeviceData, updateUsername } from "@/lib/auth";
+import { registerUser, loginUser, verifyToken, logoutUser, mergeDeviceData, getAuthFromRequest, updateUsername } from "@/lib/auth";
 import { getEnv } from "@/lib/cloudflare";
 import { POINT_RULES } from "@/app/api/points/route";
 
