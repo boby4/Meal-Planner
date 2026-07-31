@@ -245,6 +245,24 @@ export default function LotteryPage() {
     loadData();
   }, [user]);
 
+  /** 加载播报数据 */
+  const loadBroadcasts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/lottery?type=broadcast');
+      if (res.ok) {
+        const data = await res.json();
+        setBroadcasts((data || []).map((r: any) => ({
+          resultType: r.result_type,
+          betAmount: r.bet_amount,
+          win: r.win_amount,
+          time: getTimeAgo(r.created_at)
+        })));
+      }
+    } catch (error) {
+      console.error('Failed to load broadcasts:', error);
+    }
+  }, []);
+
   /** 获取随机菜谱 */
   const fetchRandomRecipe = useCallback(async (): Promise<{ name: string; desc: string }> => {
     try {
@@ -425,7 +443,7 @@ export default function LotteryPage() {
     };
     setRecords((prev) => [record, ...prev].slice(0, 50));
 
-    // 保存记录到数据库
+    // 保存记录到数据库并刷新播报
     try {
       const token = localStorage.getItem('meal_planner_token');
       await fetch('/api/lottery', {
@@ -436,10 +454,12 @@ export default function LotteryPage() {
         },
         body: JSON.stringify({ resultType, betAmount, winAmount, recipeName: recipe.name })
       });
+      // 刷新播报数据
+      await loadBroadcasts();
     } catch (error) {
       console.error('Failed to save lottery record:', error);
     }
-  }, [isSpinning, selectedCell, grid, betAmount, maxWin, evaluateGrid, fetchRandomRecipe]);
+  }, [isSpinning, selectedCell, grid, betAmount, maxWin, evaluateGrid, fetchRandomRecipe, loadBroadcasts]);
 
   /** 自动摇 */
   const autoSpinRef = useRef(false);
