@@ -10,7 +10,6 @@ export const POINT_RULES = {
   CONSECUTIVE_7_DAYS: { points: 50, description: "连续7天签到奖励" },
   CHAT_MESSAGE: { points: -1, description: "聊天发言" },
   AI_RECOMMEND: { points: -10, description: "AI推荐" },
-  LOTTERY_SPIN: { points: -5, description: "摇摇乐抽奖" },
 };
 
 interface UserPoints {
@@ -80,37 +79,69 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { type, relatedId, points: customPoints } = body;
 
-    // 处理摇摇乐中奖（动态积分）
-    if (type === 'LOTTERY_WIN') {
+    // 处理摇摇乐（动态积分）
+    if (type === 'LOTTERY_WIN' || type === 'LOTTERY_SPIN') {
       if (!customPoints || customPoints <= 0) {
         return NextResponse.json({ error: "无效的积分数量" }, { status: 400 });
       }
-      
+
       const env = await getEnv();
       if (!env?.DB) {
         return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
       }
 
+      // 获取当前积分
+      let pointsResult = await env.DB
+        .prepare("SELECT * FROM user_points WHERE user_id = ?")
+        .bind(auth.userId)
+        .first<UserPoints>();
+
+      if (!pointsResult) {
+        await env.DB
+          .prepare(
+            "INSERT INTO user_points (user_id, points, total_earned, total_spent) VALUES (?, 0, 0, 0)"
+          )
+          .bind(auth.userId)
+          .run();
+        pointsResult = { user_id: auth.userId, points: 0, total_earned: 0, total_spent: 0 };
+      }
+
+      const isWin = type === 'LOTTERY_WIN';
+      const pointsChange = isWin ? customPoints : -customPoints;
+
+      // 扣减时检查积分
+      if (!isWin && pointsResult.points < customPoints) {
+        return NextResponse.json(
+          { error: "积分不足", currentPoints: pointsResult.points },
+          { status: 400 }
+        );
+      }
+
       // 更新积分
+      const newPoints = pointsResult.points + pointsChange;
+      const newTotalEarned = isWin ? pointsResult.total_earned + customPoints : pointsResult.total_earned;
+      const newTotalSpent = !isWin ? pointsResult.total_spent + customPoints : pointsResult.total_spent;
+
       await env.DB
         .prepare(
-          "UPDATE user_points SET points = points + ?, total_earned = total_earned + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
+          "UPDATE user_points SET points = ?, total_earned = ?, total_spent = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
         )
-        .bind(customPoints, customPoints, auth.userId)
+        .bind(newPoints, newTotalEarned, newTotalSpent, auth.userId)
         .run();
 
       // 记录积分变动
+      const description = isWin ? `摇摇乐中奖 +${customPoints}积分` : `摇摇乐投注 -${customPoints}积分`;
       await env.DB
         .prepare(
           "INSERT INTO point_records (user_id, points, type, description, related_id) VALUES (?, ?, ?, ?, ?)"
         )
-        .bind(auth.userId, customPoints, type, `摇摇乐中奖 +${customPoints}积分`, relatedId || null)
+        .bind(auth.userId, pointsChange, type, description, relatedId || null)
         .run();
 
       return NextResponse.json({
         success: true,
-        points: customPoints,
-        description: `摇摇乐中奖 +${customPoints}积分`,
+        points: newPoints,
+        description,
       });
     }
 

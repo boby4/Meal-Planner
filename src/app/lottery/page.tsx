@@ -24,13 +24,12 @@ const PAYLINES: { name: string; cells: [number, number][] }[] = [
   { name: "对角线↗", cells: [[2,0],[1,1],[0,2],[1,3],[2,4]] },
 ];
 
-/** 投注积分选项 */
+/** 投注积分选项（与积分系统兼容） */
 const BET_OPTIONS = [
+  { label: "10积分", value: 10 },
   { label: "50积分", value: 50 },
   { label: "100积分", value: 100 },
   { label: "200积分", value: 200 },
-  { label: "500积分", value: 500 },
-  { label: "1000积分", value: 1000 },
 ];
 
 /** 摇次数选项 */
@@ -288,7 +287,7 @@ export default function LotteryPage() {
     if (isSpinning) return;
     if (!selectedCell) return;
 
-    // 扣减积分
+    // 扣减积分（按投注金额扣减）
     try {
       const token = localStorage.getItem('meal_planner_token');
       const pointsRes = await fetch('/api/points', {
@@ -297,18 +296,18 @@ export default function LotteryPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ type: 'LOTTERY_SPIN' })
+        body: JSON.stringify({ type: 'LOTTERY_SPIN', points: betAmount })
       });
 
       if (!pointsRes.ok) {
         const errorData = await pointsRes.json();
         if (errorData.error === '积分不足') {
-          showToast('积分不足，无法抽奖！每日签到可获得积分哦～', 'error');
+          showToast('积分不足，无法投注！每日签到可获得积分哦～', 'error');
           return;
         }
         throw new Error(errorData.error);
       }
-      showToast('-5 积分', 'info');
+      showToast(`-${betAmount} 积分`, 'info');
     } catch (error) {
       console.error('Points deduction failed:', error);
       showToast('积分扣减失败，请重试', 'error');
