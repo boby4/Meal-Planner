@@ -36,7 +36,6 @@ async function initSqlJs() {
       username TEXT DEFAULT '',
       password_hash TEXT NOT NULL,
       salt TEXT NOT NULL,
-      points INTEGER DEFAULT 100,
       created_at TEXT DEFAULT (datetime('now'))
     )
   `);

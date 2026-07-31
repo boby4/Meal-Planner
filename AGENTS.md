@@ -238,7 +238,7 @@ src/
 
 | 表名 | 用途 | 关键字段 |
 |------|------|----------|
-| `users` | 用户 | email, username, password_hash, salt, points, preferences(JSON) |
+| `users` | 用户 | email, username, password_hash, salt, preferences(JSON) |
 | `sessions` | 会话 | token, user_id, expires_at |
 | `favorites` | 收藏 | user_id, recipe_name, recipe_data |
 | `history` | 浏览历史 | user_id, recipe_name, viewed_at |
