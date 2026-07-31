@@ -22,17 +22,22 @@ interface OnlineUser {
   username: string;
 }
 
+// 消息缓存key
+const MESSAGES_CACHE_KEY = 'chat_messages_cache';
+
 export default function ChatPage() {
-  const { user } = useAuth();
+  const { user, authFetch } = useAuth();
   const { showToast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isConnected, setIsConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -46,9 +51,58 @@ export default function ChatPage() {
     '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍'
   ];
 
-  // 连接 WebSocket
+  // 从缓存加载消息
+  const loadMessagesFromCache = useCallback(() => {
+    try {
+      const cached = localStorage.getItem(MESSAGES_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+          return true;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load messages from cache:', e);
+    }
+    return false;
+  }, []);
+
+  // 保存消息到缓存
+  const saveMessagesToCache = useCallback((msgs: Message[]) => {
+    try {
+      // 只缓存最近50条消息
+      const toCache = msgs.slice(-50);
+      localStorage.setItem(MESSAGES_CACHE_KEY, JSON.stringify(toCache));
+    } catch (e) {
+      console.error('Failed to save messages to cache:', e);
+    }
+  }, []);
+
+  // HTTP降级加载消息
+  const loadMessagesViaHTTP = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/chat/messages');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.messages && Array.isArray(data.messages)) {
+          setMessages(data.messages);
+          saveMessagesToCache(data.messages);
+          return true;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load messages via HTTP:', e);
+    }
+    return false;
+  }, [authFetch, saveMessagesToCache]);
+
+  // 连接 WebSocket（带超时和降级）
   const connectWebSocket = useCallback(async () => {
     if (!user || wsRef.current) return;
+
+    // 先尝试从缓存加载
+    loadMessagesFromCache();
 
     try {
       const token = localStorage.getItem('meal_planner_token');
@@ -59,8 +113,22 @@ export default function ChatPage() {
       
       const ws = new WebSocket(wsUrl);
       
+      // 连接超时处理（5秒）
+      connectionTimeoutRef.current = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          console.warn('WebSocket connection timeout, falling back to HTTP');
+          ws.close();
+          loadMessagesViaHTTP().finally(() => setIsLoading(false));
+        }
+      }, 5000);
+      
       ws.onopen = () => {
         setIsConnected(true);
+        setIsLoading(false);
+        if (connectionTimeoutRef.current) {
+          clearTimeout(connectionTimeoutRef.current);
+          connectionTimeoutRef.current = null;
+        }
       };
 
       ws.onmessage = (event) => {
@@ -75,6 +143,10 @@ export default function ChatPage() {
       ws.onclose = (event) => {
         setIsConnected(false);
         wsRef.current = null;
+        if (connectionTimeoutRef.current) {
+          clearTimeout(connectionTimeoutRef.current);
+          connectionTimeoutRef.current = null;
+        }
         // 自动重连，不显示状态
         if (event.code !== 1008) {
           reconnectTimeoutRef.current = setTimeout(connectWebSocket, 2000);
@@ -88,8 +160,11 @@ export default function ChatPage() {
       wsRef.current = ws;
     } catch (error) {
       console.error('WebSocket connection failed:', error);
+      // 降级到HTTP加载
+      await loadMessagesViaHTTP();
+      setIsLoading(false);
     }
-  }, [user]);
+  }, [user, loadMessagesFromCache, loadMessagesViaHTTP]);
 
   useEffect(() => {
     connectWebSocket();
@@ -97,6 +172,9 @@ export default function ChatPage() {
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current);
       }
       if (wsRef.current) {
         wsRef.current.close();
@@ -116,9 +194,14 @@ export default function ChatPage() {
     switch (data.type) {
       case 'recent_messages':
         setMessages(data.messages || []);
+        saveMessagesToCache(data.messages || []);
         break;
       case 'new_message':
-        setMessages(prev => [...prev, data.message!]);
+        setMessages(prev => {
+          const updated = [...prev, data.message!];
+          saveMessagesToCache(updated);
+          return updated;
+        });
         break;
       case 'user_join':
         setOnlineUsers(prev => {
@@ -315,7 +398,12 @@ export default function ChatPage() {
         ref={chatContainerRef}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
       >
-        {messages.length === 0 ? (
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center h-full text-center py-12">
+            <div className="w-8 h-8 border-2 border-[#FF6B35] border-t-transparent rounded-full animate-spin mb-4" />
+            <p className="text-gray-500 text-sm">正在加载聊天记录...</p>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center py-12">
             <div className="text-5xl mb-4">👋</div>
             <p className="text-gray-500 text-sm">欢迎来到厨房闲聊</p>
