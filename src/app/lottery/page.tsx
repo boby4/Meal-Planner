@@ -24,13 +24,13 @@ const PAYLINES: { name: string; cells: [number, number][] }[] = [
   { name: "对角线↗", cells: [[2,0],[1,1],[0,2],[1,3],[2,4]] },
 ];
 
-/** 投注金额选项（餐费预算/元） */
+/** 投注积分选项 */
 const BET_OPTIONS = [
-  { label: "50元", value: 50 },
-  { label: "100元", value: 100 },
-  { label: "200元", value: 200 },
-  { label: "500元", value: 500 },
-  { label: "1000元", value: 1000 },
+  { label: "50积分", value: 50 },
+  { label: "100积分", value: 100 },
+  { label: "200积分", value: 200 },
+  { label: "500积分", value: 500 },
+  { label: "1000积分", value: 1000 },
 ];
 
 /** 摇次数选项 */
@@ -488,19 +488,21 @@ export default function LotteryPage() {
     <div className="min-h-screen flex flex-col lottery-bg">
       {/* ===== 顶部导航栏 ===== */}
       <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-gray-100">
-        <div className="max-w-md mx-auto flex items-center justify-between px-4 h-12">
-          <div className="flex items-center gap-2">
+        <div className="max-w-md mx-auto px-4 py-2">
+          {/* 第一行：标题 */}
+          <div className="flex items-center gap-2 mb-2">
             <button
               onClick={() => router.back()}
               className="text-gray-400 hover:text-gray-600 text-lg font-bold leading-none"
             >
               ✕
             </button>
-            <h1 className="font-bold text-gray-900 text-sm whitespace-nowrap">
+            <h1 className="font-bold text-gray-900 text-sm">
               今天吃什么 · 摇摇乐
             </h1>
           </div>
-          <nav className="flex items-center gap-1">
+          {/* 第二行：Tab导航 */}
+          <nav className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
             {(
               [
                 { key: "game", label: "🎮 游戏" },
@@ -512,7 +514,7 @@ export default function LotteryPage() {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`px-2 py-1 rounded-lg text-xs whitespace-nowrap transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs whitespace-nowrap transition-all flex-shrink-0 ${
                   activeTab === tab.key
                     ? "bg-white border border-gray-200 shadow-sm font-medium text-gray-900"
                     : "text-gray-500 hover:text-gray-700"
@@ -1000,6 +1002,13 @@ export default function LotteryPage() {
         .lottery-dots {
           background-image: radial-gradient(circle, rgba(0,0,0,0.03) 1px, transparent 1px);
           background-size: 12px 12px;
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
+        }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
         }
       `}</style>
     </div>
