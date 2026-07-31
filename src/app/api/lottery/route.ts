@@ -1,18 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCloudflareDB } from '@/lib/cloudflare';
+import { getEnv } from '@/lib/cloudflare';
 import { getAuthFromRequest } from '@/lib/auth';
 
 // 获取用户摇摇乐记录和统计
 export async function GET(request: NextRequest) {
   try {
     const auth = await getAuthFromRequest(request);
+    
+    const env = await getEnv();
+    const db = env.DB;
+    const { searchParams } = new URL(request.url);
+    const type = searchParams.get('type') || 'records';
+    
+    if (type === 'broadcast') {
+      // 获取全服最新播报（匿名化，不需要登录）
+      const records = await db.prepare(`
+        SELECT 
+          result_type,
+          bet_amount,
+          win_amount,
+          created_at
+        FROM lotto_records 
+        WHERE win_amount > 0
+        ORDER BY created_at DESC 
+        LIMIT 10
+      `).all();
+      
+      return NextResponse.json(records.results || []);
+    }
+    
+    // 以下接口需要登录
     if (!auth?.userId) {
       return NextResponse.json({ error: '请先登录' }, { status: 401 });
     }
-
-    const db = await getCloudflareDB();
-    const { searchParams } = new URL(request.url);
-    const type = searchParams.get('type') || 'records';
     
     if (type === 'stats') {
       // 获取统计数据
@@ -27,23 +47,6 @@ export async function GET(request: NextRequest) {
       `).bind(auth.userId).first();
       
       return NextResponse.json(stats || { total_spins: 0, total_bet: 0, total_win: 0, max_win: 0 });
-    }
-    
-    if (type === 'broadcast') {
-      // 获取全服最新播报（匿名化）
-      const records = await db.prepare(`
-        SELECT 
-          result_type,
-          bet_amount,
-          win_amount,
-          created_at
-        FROM lotto_records 
-        WHERE win_amount > 0
-        ORDER BY created_at DESC 
-        LIMIT 10
-      `).all();
-      
-      return NextResponse.json(records.results || []);
     }
     
     // 获取用户记录
@@ -84,7 +87,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '参数不完整' }, { status: 400 });
     }
 
-    const db = await getCloudflareDB();
+    const env = await getEnv();
+    const db = env.DB;
     
     await db.prepare(`
       INSERT INTO lotto_records (user_id, result_type, bet_amount, win_amount, recipe_name)
