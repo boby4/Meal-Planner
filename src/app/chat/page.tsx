@@ -233,33 +233,73 @@ export default function ChatPage() {
     }
   };
 
+  // 通过HTTP发送消息（WebSocket未连接时的降级方案）
+  const sendMessageViaHTTP = useCallback(async (content: string, messageType: string) => {
+    const token = localStorage.getItem('meal_planner_token');
+    const res = await authFetch('/api/chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content, messageType })
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || '发送失败');
+    }
+    return res.json();
+  }, [authFetch]);
+
   const sendMessage = useCallback(async () => {
     if (!inputValue.trim() || !user) return;
 
-    // 检查 WebSocket 是否处于 OPEN 状态
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('WebSocket is not open, attempting to reconnect...');
-      connectWebSocket();
-      return;
+    const messageContent = inputValue.trim();
+    const messageType = 'text';
+
+    // 立即清空输入框（即时响应）
+    setInputValue('');
+    setShowEmojiPicker(false);
+    inputRef.current?.focus();
+
+    // 乐观更新：立即在本地显示消息
+    const optimisticMessage: Message = {
+      id: `temp-${Date.now()}`,
+      userId: user.id,
+      email: user.email || '',
+      username: user.username || '',
+      content: messageContent,
+      messageType: messageType as 'text' | 'emoji',
+      timestamp: Date.now()
+    };
+    setMessages(prev => {
+      const updated = [...prev, optimisticMessage];
+      saveMessagesToCache(updated);
+      return updated;
+    });
+
+    // 发送消息（WebSocket优先，HTTP降级）
+    let sent = false;
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({
+          type: 'message',
+          content: messageContent,
+          messageType
+        }));
+        sent = true;
+      } catch (e) {
+        console.error('WebSocket send failed, falling back to HTTP:', e);
+      }
     }
 
-    // 先发送消息（即时响应）
-    const messageContent = inputValue.trim();
-    const message = {
-      type: 'message',
-      content: messageContent,
-      messageType: 'text' as const
-    };
-
-    try {
-      wsRef.current.send(JSON.stringify(message));
-      setInputValue('');
-      setShowEmojiPicker(false);
-      inputRef.current?.focus();
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      connectWebSocket();
-      return;
+    if (!sent) {
+      try {
+        await sendMessageViaHTTP(messageContent, messageType);
+      } catch (e) {
+        console.error('HTTP send failed:', e);
+        showToast('发送失败，请重试', 'error');
+        // 回滚乐观更新
+        setMessages(prev => prev.filter(m => m.id !== optimisticMessage.id));
+        return;
+      }
     }
 
     // 后台扣减积分（不阻塞发送）
@@ -283,7 +323,7 @@ export default function ChatPage() {
     }).catch((err) => {
       console.error('Points deduction failed:', err);
     });
-  }, [inputValue, user, connectWebSocket]);
+  }, [inputValue, user, sendMessageViaHTTP, saveMessagesToCache]);
 
   // 选择表情插入到输入框
   const insertEmoji = useCallback((emoji: string) => {
@@ -531,7 +571,7 @@ export default function ChatPage() {
             )}
             <button
               onClick={sendMessage}
-              disabled={!inputValue.trim() || !isConnected}
+              disabled={!inputValue.trim()}
               className="p-2.5 bg-[#FF6B35] text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#E55A2B] transition-all active:scale-95"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

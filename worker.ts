@@ -13,6 +13,29 @@ import { default as handler } from "./.open-next/worker.js";
 // 导出 ChatRoom Durable Object
 export { ChatRoom } from "./src/lib/chat-room";
 
+// 处理 HTTP发送消息请求
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function handleChatSend(request: any, env: CloudflareEnv): Promise<any> {
+  if (!env.CHAT_ROOM) {
+    return new Response('Durable Objects not configured', { status: 500 });
+  }
+
+  const id = env.CHAT_ROOM.idFromName('global-chat-room');
+  const stub = env.CHAT_ROOM.get(id);
+
+  const doUrl = new URL('/send', request.url);
+  const headers = new Headers(request.headers);
+  
+  const doRequest = new Request(doUrl.toString(), {
+    method: 'POST',
+    headers,
+    body: request.body,
+  });
+
+  // @ts-ignore - Durable Object fetch accepts standard Request
+  return stub.fetch(doRequest);
+}
+
 // 处理 WebSocket升级请求
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function handleWebSocket(request: any, env: CloudflareEnv): Promise<any> {
@@ -60,6 +83,11 @@ export default {
     // 处理 WebSocket连接
     if (url.pathname === '/api/chat/ws') {
       return handleWebSocket(request, env);
+    }
+
+    // 处理 HTTP发送消息
+    if (url.pathname === '/api/chat/send' && request.method === 'POST') {
+      return handleChatSend(request, env);
     }
     
     // 其他请求交给 Next.js处理

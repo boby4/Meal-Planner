@@ -125,6 +125,10 @@ export class ChatRoom {
     if (url.pathname === '/messages') {
       return await this.getRecentMessages();
     }
+
+    if (url.pathname === '/send' && request.method === 'POST') {
+      return await this.handleHttpSend(request);
+    }
     
     if (url.pathname === '/online-users') {
       return this.getOnlineUsers();
@@ -288,6 +292,59 @@ export class ChatRoom {
     } catch (e) {
       console.error('Failed to get messages from KV:', e);
       return [];
+    }
+  }
+
+  // HTTP方式发送消息（WebSocket未连接时的降级方案）
+  private async handleHttpSend(request: Request): Promise<Response> {
+    try {
+      // 验证用户身份
+      const authHeader = request.headers.get('Authorization');
+      if (!authHeader?.startsWith('Bearer ')) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      const token = authHeader.slice(7);
+      const user = await this.verifyToken(token);
+      if (!user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      const body = await request.json() as { content?: string; messageType?: string };
+      if (!body.content || typeof body.content !== 'string') {
+        return new Response(JSON.stringify({ error: '消息内容不能为空' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      if (body.content.length > 200) {
+        return new Response(JSON.stringify({ error: '消息长度不能超过200字符' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      }
+
+      const message: ChatMessage = {
+        id: crypto.randomUUID(),
+        userId: user.userId,
+        email: user.email,
+        username: user.username,
+        content: body.content,
+        messageType: (body.messageType as 'text' | 'emoji') || 'text',
+        timestamp: Date.now()
+      };
+
+      // 广播给所有在线用户
+      this.broadcast({
+        type: 'new_message',
+        message
+      });
+
+      // 异步保存
+      this.saveMessageToKV(message).catch(console.error);
+      this.archiveMessageToD1(message).catch(console.error);
+
+      return new Response(JSON.stringify({ success: true, message }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    } catch (error) {
+      console.error('HTTP send message failed:', error);
+      return new Response(JSON.stringify({ error: '发送失败' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
   }
 
