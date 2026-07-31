@@ -79,7 +79,7 @@ export default function ChatPage() {
     }
   }, []);
 
-  // HTTP降级加载消息
+  // HTTP加载消息
   const loadMessagesViaHTTP = useCallback(async () => {
     try {
       const res = await authFetch('/api/chat/messages');
@@ -97,13 +97,26 @@ export default function ChatPage() {
     return false;
   }, [authFetch, saveMessagesToCache]);
 
-  // 连接 WebSocket（带超时和降级）
+  // 连接 WebSocket
   const connectWebSocket = useCallback(async () => {
     if (!user || wsRef.current) return;
 
-    // 先尝试从缓存加载
-    loadMessagesFromCache();
+    // 1. 先从缓存加载，有缓存则立即展示（不阻塞UI）
+    const hasCache = loadMessagesFromCache();
+    if (hasCache) {
+      setIsLoading(false);
+    }
 
+    // 2. 立即并行发起HTTP请求获取最新消息（不等WebSocket）
+    if (!hasCache) {
+      // 没有缓存时，HTTP请求用于首次加载
+      loadMessagesViaHTTP().finally(() => setIsLoading(false));
+    } else {
+      // 有缓存时，后台静默刷新
+      loadMessagesViaHTTP();
+    }
+
+    // 3. 同时连接WebSocket（用于实时消息）
     try {
       const token = localStorage.getItem('meal_planner_token');
       if (!token) return;
@@ -113,14 +126,13 @@ export default function ChatPage() {
       
       const ws = new WebSocket(wsUrl);
       
-      // 连接超时处理（5秒）
+      // 连接超时处理（2秒，HTTP已并行获取消息，WebSocket只是实时通道）
       connectionTimeoutRef.current = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN) {
-          console.warn('WebSocket connection timeout, falling back to HTTP');
+          console.warn('WebSocket connection timeout');
           ws.close();
-          loadMessagesViaHTTP().finally(() => setIsLoading(false));
         }
-      }, 5000);
+      }, 2000);
       
       ws.onopen = () => {
         setIsConnected(true);
@@ -147,7 +159,7 @@ export default function ChatPage() {
           clearTimeout(connectionTimeoutRef.current);
           connectionTimeoutRef.current = null;
         }
-        // 自动重连，不显示状态
+        // 自动重连
         if (event.code !== 1008) {
           reconnectTimeoutRef.current = setTimeout(connectWebSocket, 2000);
         }
@@ -160,9 +172,6 @@ export default function ChatPage() {
       wsRef.current = ws;
     } catch (error) {
       console.error('WebSocket connection failed:', error);
-      // 降级到HTTP加载
-      await loadMessagesViaHTTP();
-      setIsLoading(false);
     }
   }, [user, loadMessagesFromCache, loadMessagesViaHTTP]);
 
