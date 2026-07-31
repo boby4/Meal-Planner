@@ -24,8 +24,8 @@ export async function GET(request: NextRequest) {
       .all();
 
     // 转换时间戳并反转顺序
-    const messages = (results || [])
-      .map((msg: { id: string; userId: number; email: string; username: string; content: string; messageType: string; created_at: string }) => ({
+    const messages = ((results || []) as { id: string; userId: number; email: string; username: string; content: string; messageType: string; created_at: string }[])
+      .map((msg) => ({
         ...msg,
         timestamp: new Date(msg.created_at + 'Z').getTime()
       }))
