@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
+import { useToast } from '@/components/Toast';
 import Link from 'next/link';
 
 interface Message {
@@ -23,6 +24,7 @@ interface OnlineUser {
 
 export default function ChatPage() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isConnected, setIsConnected] = useState(false);
@@ -164,14 +166,16 @@ export default function ChatPage() {
       if (!pointsRes.ok) {
         const errorData = await pointsRes.json();
         if (errorData.error === '积分不足') {
-          alert('积分不足，无法发送消息！每日签到可获得积分哦～');
+          showToast('积分不足，无法发送消息！每日签到可获得积分哦～', 'error');
           return;
         }
         throw new Error(errorData.error);
       }
+      
+      showToast('-1 积分', 'info');
     } catch (error) {
       console.error('Points deduction failed:', error);
-      alert('积分扣减失败，请重试');
+      showToast('积分扣减失败，请重试', 'error');
       return;
     }
 

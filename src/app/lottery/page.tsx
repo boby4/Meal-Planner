@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/Toast";
 
 // ============ 常量定义 ============
 
@@ -135,6 +136,7 @@ interface SpinRecord {
 
 export default function LotteryPage() {
   const router = useRouter();
+  const { showToast } = useToast();
 
   // Tab 状态
   const [activeTab, setActiveTab] = useState<TabType>("game");
@@ -234,14 +236,15 @@ export default function LotteryPage() {
       if (!pointsRes.ok) {
         const errorData = await pointsRes.json();
         if (errorData.error === '积分不足') {
-          alert('积分不足，无法抽奖！每日签到可获得积分哦～');
+          showToast('积分不足，无法抽奖！每日签到可获得积分哦～', 'error');
           return;
         }
         throw new Error(errorData.error);
       }
+      showToast('-5 积分', 'info');
     } catch (error) {
       console.error('Points deduction failed:', error);
-      alert('积分扣减失败，请重试');
+      showToast('积分扣减失败，请重试', 'error');
       return;
     }
 
@@ -324,6 +327,7 @@ export default function LotteryPage() {
           },
           body: JSON.stringify({ type: 'LOTTERY_WIN', points: winAmount })
         });
+        showToast(`🎉 恭喜中奖！+${winAmount} 积分`, 'success');
       } catch (error) {
         console.error('Failed to save lottery win points:', error);
       }

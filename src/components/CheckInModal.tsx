@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useToast } from "@/components/Toast";
 
 interface CheckInRecord {
   id: number;
@@ -31,6 +32,7 @@ const MEAL_TYPES = [
 ];
 
 export default function CheckInModal({ date, onClose, onUpdate, authFetch }: CheckInModalProps) {
+  const { showToast } = useToast();
   const [records, setRecords] = useState<CheckInRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingMeal, setEditingMeal] = useState<string | null>(null);
@@ -103,6 +105,7 @@ export default function CheckInModal({ date, onClose, onUpdate, authFetch }: Che
         setShowFavorites(false);
         await loadRecords();
         onUpdate();
+        showToast('🎉 打卡成功！+10 积分', 'success');
       }
     } catch { /* ignore */ }
     setSaving(false);
