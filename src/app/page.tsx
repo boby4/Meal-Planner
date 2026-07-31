@@ -339,6 +339,21 @@ export default function HomePage() {
               </button>
             </motion.div>
 
+            {/* 摇摇乐抽菜谱入口 */}
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.28 }}>
+              <button
+                onClick={() => router.push("/lottery")}
+                className="w-full p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/60 shadow-lg shadow-amber-100/40 text-left hover:from-amber-100 hover:to-orange-100 transition-all active:scale-95 flex items-center gap-3"
+              >
+                <span className="text-2xl">🎰</span>
+                <div>
+                  <p className="font-bold text-sm text-gray-900">摇摇乐 · 抽菜谱</p>
+                  <p className="text-xs text-gray-400 mt-0.5">摇一摇，看看今天吃什么</p>
+                </div>
+                <span className="ml-auto text-xs text-orange-400 font-medium">HOT 🔥</span>
+              </button>
+            </motion.div>
+
             {/* 厨房闲聊入口 */}
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
               <button
