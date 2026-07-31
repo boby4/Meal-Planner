@@ -78,7 +78,41 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { type, relatedId } = body;
+    const { type, relatedId, points: customPoints } = body;
+
+    // 处理摇摇乐中奖（动态积分）
+    if (type === 'LOTTERY_WIN') {
+      if (!customPoints || customPoints <= 0) {
+        return NextResponse.json({ error: "无效的积分数量" }, { status: 400 });
+      }
+      
+      const env = await getEnv();
+      if (!env?.DB) {
+        return NextResponse.json({ error: "数据库不可用" }, { status: 503 });
+      }
+
+      // 更新积分
+      await env.DB
+        .prepare(
+          "UPDATE user_points SET points = points + ?, total_earned = total_earned + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
+        )
+        .bind(customPoints, customPoints, auth.userId)
+        .run();
+
+      // 记录积分变动
+      await env.DB
+        .prepare(
+          "INSERT INTO point_records (user_id, points, type, description, related_id) VALUES (?, ?, ?, ?, ?)"
+        )
+        .bind(auth.userId, customPoints, type, `摇摇乐中奖 +${customPoints}积分`, relatedId || null)
+        .run();
+
+      return NextResponse.json({
+        success: true,
+        points: customPoints,
+        description: `摇摇乐中奖 +${customPoints}积分`,
+      });
+    }
 
     const rule = POINT_RULES[type as keyof typeof POINT_RULES];
     if (!rule) {

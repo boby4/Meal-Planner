@@ -312,6 +312,23 @@ export default function LotteryPage() {
     const { lines, cells } = evaluateGrid(finalGrid, target);
     const recipe = await fetchRandomRecipe();
 
+    // 中奖积分入库
+    if (winAmount > 0) {
+      try {
+        const token = localStorage.getItem('meal_planner_token');
+        await fetch('/api/points', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ type: 'LOTTERY_WIN', points: winAmount })
+        });
+      } catch (error) {
+        console.error('Failed to save lottery win points:', error);
+      }
+    }
+
     setTotalSpins((p) => p + 1);
     setTotalBet((p) => p + betAmount);
     setTotalWin((p) => p + winAmount);
