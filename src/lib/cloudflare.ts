@@ -136,6 +136,34 @@ async function initSqlJs() {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at)`);
 
+  // 积分表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS user_points (
+      user_id INTEGER PRIMARY KEY,
+      points INTEGER NOT NULL DEFAULT 0,
+      total_earned INTEGER NOT NULL DEFAULT 0,
+      total_spent INTEGER NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  
+  // 积分记录表
+  db.run(`
+    CREATE TABLE IF NOT EXISTS point_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      points INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      related_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_point_records_user ON point_records(user_id, created_at DESC)`);
+
   _sqlJsDB = db;
   _sqlJsReady = true;
   console.log("[LocalD1] sql.js 内存数据库已初始化");

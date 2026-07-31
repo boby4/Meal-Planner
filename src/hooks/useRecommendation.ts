@@ -112,6 +112,31 @@ export function useRecommendation() {
       return;
     }
 
+    // 扣减积分
+    try {
+      const token = localStorage.getItem('meal_planner_token');
+      const pointsRes = await fetch('/api/points', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ type: 'AI_RECOMMEND' })
+      });
+
+      if (!pointsRes.ok) {
+        const errorData = await pointsRes.json();
+        if (errorData.error === '积分不足') {
+          setError('积分不足，无法使用AI推荐！每日签到可获得积分哦～');
+          return;
+        }
+        throw new Error(errorData.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '积分扣减失败');
+      return;
+    }
+
     cancelCurrentRequest();
     setLoading(true);
     setError(null);

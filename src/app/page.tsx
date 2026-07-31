@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { FilterPanel } from "@/components/FilterPanel";
 import { IngredientInput } from "@/components/IngredientInput";
 import { PreferencesPanel } from "@/components/PreferencesPanel";
+import { PointsDisplay } from "@/components/PointsDisplay";
 import { useRecommendation } from "@/hooks/useRecommendation";
 import { useMealStore } from "@/stores/useMealStore";
 import { useAuth } from "@/hooks/useAuth";
@@ -225,9 +226,10 @@ export default function HomePage() {
       )}
 
       {/* 顶部用户状态 */}
-      <div className="w-full flex justify-end mb-2 gap-2">
+      <div className="w-full flex justify-end mb-2 gap-2 items-center">
         {user ? (
           <>
+            <PointsDisplay />
             <Link href="/preferences" className="text-xs text-gray-400 hover:text-[#FF6B35] transition-colors">
               ⚙️ 偏好
             </Link>

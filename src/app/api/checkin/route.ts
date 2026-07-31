@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getEnv } from "@/lib/cloudflare";
 import { getAuthFromRequest } from "@/lib/auth";
 import { handleAPIError } from "@/lib/error-handler";
+import { POINT_RULES } from "@/app/api/points/route";
 
 // GET /api/checkin?month=2026-07 或 ?date=2026-07-16
 export async function GET(request: Request) {
@@ -72,6 +73,81 @@ export async function POST(request: Request) {
        ON CONFLICT(user_id, check_date, meal_type)
        DO UPDATE SET recipe_name = excluded.recipe_name, recipe_data = excluded.recipe_data, image_url = excluded.image_url, note = excluded.note, cost = excluded.cost`
     ).bind(userId, deviceId || "", check_date, meal_type, recipe_name, JSON.stringify(recipe_data || {}), image_url || null, note || null, cost || 0).run();
+
+    // 打卡成功后赠送积分（仅限已登录用户）
+    if (userId) {
+      try {
+        const pointEnv = await getEnv();
+        if (!pointEnv?.DB) return NextResponse.json({ success: true });
+        const db = pointEnv.DB;
+        
+        // 检查今天是否已经获得过签到积分（通过检查 point_records）
+        const todayCheckin = await db
+          .prepare(
+            "SELECT id FROM point_records WHERE user_id = ? AND type = 'DAILY_CHECKIN' AND date(created_at) = date('now')"
+          )
+          .bind(userId)
+          .first();
+
+        if (!todayCheckin) {
+          const rule = POINT_RULES.DAILY_CHECKIN;
+          
+          // 更新积分
+          await db
+            .prepare(
+              "INSERT INTO user_points (user_id, points, total_earned) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET points = points + ?, total_earned = total_earned + ?, updated_at = CURRENT_TIMESTAMP"
+            )
+            .bind(userId, rule.points, rule.points, rule.points, rule.points)
+            .run();
+          
+          // 记录积分变动
+          await db
+            .prepare(
+              "INSERT INTO point_records (user_id, points, type, description) VALUES (?, ?, 'DAILY_CHECKIN', ?)"
+            )
+            .bind(userId, rule.points, rule.description)
+            .run();
+        }
+
+        // 检查连续签到奖励（7天）
+        const consecutiveDays = await db
+          .prepare(
+            "SELECT COUNT(DISTINCT check_date) as days FROM check_ins WHERE user_id = ? AND check_date >= date('now', '-7 days')"
+          )
+          .bind(userId)
+          .first<{ days: number }>();
+
+        if (consecutiveDays && consecutiveDays.days >= 7) {
+          const bonusRule = POINT_RULES.CONSECUTIVE_7_DAYS;
+          
+          // 检查是否已经获得过连续签到奖励
+          const existingBonus = await db
+            .prepare(
+              "SELECT id FROM point_records WHERE user_id = ? AND type = 'CONSECUTIVE_7_DAYS' AND created_at > date('now', '-7 days')"
+            )
+            .bind(userId)
+            .first();
+
+          if (!existingBonus) {
+            await db
+              .prepare(
+                "UPDATE user_points SET points = points + ?, total_earned = total_earned + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?"
+              )
+              .bind(bonusRule.points, bonusRule.points, userId)
+              .run();
+
+            await db
+              .prepare(
+                "INSERT INTO point_records (user_id, points, type, description) VALUES (?, ?, 'CONSECUTIVE_7_DAYS', ?)"
+              )
+              .bind(userId, bonusRule.points, bonusRule.description)
+              .run();
+          }
+        }
+      } catch (e) {
+        console.error("签到积分发放失败:", e);
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

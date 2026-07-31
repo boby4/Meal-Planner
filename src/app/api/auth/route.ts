@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { registerUser, loginUser, verifyToken, logoutUser, mergeDeviceData, getAuthFromRequest, updateUsername } from "@/lib/auth";
+import { getEnv } from "@/lib/cloudflare";
+import { POINT_RULES } from "@/app/api/points/route";
 
 /** POST /api/auth - 登录/注册统一入口 */
 export async function POST(request: NextRequest) {
@@ -19,6 +21,28 @@ export async function POST(request: NextRequest) {
 
     if (action === "register") {
       result = await registerUser(email, password, username);
+      
+      // 新用户注册赠送积分
+      try {
+        const env = await getEnv();
+        if (env?.DB) {
+          const rule = POINT_RULES.REGISTER;
+          
+          // 创建积分记录
+          await env.DB
+            .prepare("INSERT INTO user_points (user_id, points, total_earned, total_spent) VALUES (?, ?, ?, 0)")
+            .bind(result.user.id, rule.points, rule.points)
+            .run();
+          
+          // 记录积分变动
+          await env.DB
+            .prepare("INSERT INTO point_records (user_id, points, type, description) VALUES (?, ?, ?, ?)")
+            .bind(result.user.id, rule.points, "REGISTER", rule.description)
+            .run();
+        }
+      } catch (e) {
+        console.error("新用户积分发放失败:", e);
+      }
     } else {
       result = await loginUser(email, password);
     }

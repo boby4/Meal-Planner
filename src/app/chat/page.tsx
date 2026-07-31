@@ -139,13 +139,39 @@ export default function ChatPage() {
     }
   };
 
-  const sendMessage = useCallback(() => {
+  const sendMessage = useCallback(async () => {
     if (!inputValue.trim() || !user) return;
 
     // 检查 WebSocket 是否处于 OPEN 状态
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       console.warn('WebSocket is not open, attempting to reconnect...');
       connectWebSocket();
+      return;
+    }
+
+    // 扣减积分
+    try {
+      const token = localStorage.getItem('meal_planner_token');
+      const pointsRes = await fetch('/api/points', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ type: 'CHAT_MESSAGE' })
+      });
+
+      if (!pointsRes.ok) {
+        const errorData = await pointsRes.json();
+        if (errorData.error === '积分不足') {
+          alert('积分不足，无法发送消息！每日签到可获得积分哦～');
+          return;
+        }
+        throw new Error(errorData.error);
+      }
+    } catch (error) {
+      console.error('Points deduction failed:', error);
+      alert('积分扣减失败，请重试');
       return;
     }
 
