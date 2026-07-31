@@ -960,12 +960,21 @@ export default function LotteryPage() {
                 </section>
 
                 <section>
-                  <h3 className="font-bold text-gray-800 mb-2">💰 投注规则</h3>
+                  <h3 className="font-bold text-gray-800 mb-2">💰 积分规则</h3>
                   <ul className="space-y-1 list-disc list-inside text-xs">
-                    <li>投注积分选项：50 / 100 / 200 / 500 / 1000</li>
+                    <li>投注积分选项：10 / 50 / 100 / 200</li>
+                    <li>投注多少扣多少积分，中奖按倍率获得积分</li>
                     <li>支持自动旋转：10次 / 50次 / 100次 / 无限</li>
                     <li>无论是否命中，每次摇奖都会获得一道菜谱推荐</li>
-                    <li>积分仅为游戏娱乐，不涉及真实货币</li>
+                  </ul>
+                </section>
+
+                <section>
+                  <h3 className="font-bold text-gray-800 mb-2">🪙 积分获取</h3>
+                  <ul className="space-y-1 list-disc list-inside text-xs">
+                    <li>新用户注册：+100 积分</li>
+                    <li>每日签到：+10 积分</li>
+                    <li>连续签到7天：额外 +50 积分</li>
                   </ul>
                 </section>
 
